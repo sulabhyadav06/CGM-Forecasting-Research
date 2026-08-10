@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+data/*.xml
+nihms-2068062.pdf
+models/
+__pycache__/
+data/*.xml
