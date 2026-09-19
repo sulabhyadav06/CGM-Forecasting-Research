@@ -8,3 +8,6 @@ data/*.xml
 data/*.csv
 output/
 __pycache__/
+data/
+output/
+__pycache__/
