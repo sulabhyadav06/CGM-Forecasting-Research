@@ -1,19 +1,19 @@
 Horizon,Model,RMSE_mean,RMSE_std,N_patients
-15min,A: Glucose only,16.028942891116106,2.5602782317943564,12
-15min,B: Glucose + HeartRate,15.697630372646282,2.1103422975873802,6
-15min,C: Glucose + Carbs(meals),15.833429995550041,2.7370501585860447,12
-15min,D: Glucose + HR + Steps + Carbs + Sleep,15.448557339671899,2.3215325620139744,6
-15min,E: Glucose + Insulin (bolus+basal),15.967030759700831,2.6294720357782495,12
-15min,F: Full multimodal (HR+Steps+Carbs+Sleep+Insulin),15.992445948875465,2.3072374858301625,6
-30min,A: Glucose only,24.345900533355813,3.6592785380823303,12
-30min,B: Glucose + HeartRate,23.449542362337382,3.0986054339843854,6
-30min,C: Glucose + Carbs(meals),23.76706898024959,3.6125961305012235,12
-30min,D: Glucose + HR + Steps + Carbs + Sleep,22.91577574200392,2.7161207187435528,6
-30min,E: Glucose + Insulin (bolus+basal),23.952769036940165,3.1522667566447335,12
-30min,F: Full multimodal (HR+Steps+Carbs+Sleep+Insulin),23.041246903455754,2.489511463192532,6
-60min,A: Glucose only,36.89282142790248,4.949988734726098,12
-60min,B: Glucose + HeartRate,35.768415700259574,4.128827854445115,6
-60min,C: Glucose + Carbs(meals),36.142352678418696,5.340086118973428,12
-60min,D: Glucose + HR + Steps + Carbs + Sleep,34.9225380599275,3.4312490104488145,6
-60min,E: Glucose + Insulin (bolus+basal),36.14643078673151,4.778704660181923,12
-60min,F: Full multimodal (HR+Steps+Carbs+Sleep+Insulin),36.65847656792604,2.7184687298832677,6
+15min,A: Glucose only,16.72,2.6,12
+15min,B: Glucose + HeartRate,16.51,2.35,6
+15min,C: Glucose + Carbs(meals),17.4,3.29,12
+15min,D: Glucose + HR + Steps + Carbs + Sleep,18.2,2.93,6
+15min,E: Glucose + Insulin (bolus+basal),16.69,2.56,12
+15min,F: Full multimodal (HR+Steps+Carbs+Sleep+Insulin),18.09,3.04,6
+30min,A: Glucose only,25.22,3.47,12
+30min,B: Glucose + HeartRate,24.29,2.84,6
+30min,C: Glucose + Carbs(meals),25.54,3.83,12
+30min,D: Glucose + HR + Steps + Carbs + Sleep,25.1,2.94,6
+30min,E: Glucose + Insulin (bolus+basal),24.71,3.54,12
+30min,F: Full multimodal (HR+Steps+Carbs+Sleep+Insulin),25.59,2.82,6
+60min,A: Glucose only,38.03,5.09,12
+60min,B: Glucose + HeartRate,36.1,3.64,6
+60min,C: Glucose + Carbs(meals),38.21,5.59,12
+60min,D: Glucose + HR + Steps + Carbs + Sleep,36.1,2.55,6
+60min,E: Glucose + Insulin (bolus+basal),37.18,4.87,12
+60min,F: Full multimodal (HR+Steps+Carbs+Sleep+Insulin),36.99,1.98,6
