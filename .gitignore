@@ -11,3 +11,6 @@ __pycache__/
 data/
 output/
 __pycache__/
+data/*.csv
+output/
+__pycache__/
