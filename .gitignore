@@ -5,3 +5,6 @@ nihms-2068062.pdf
 models/
 __pycache__/
 data/*.xml
+data/*.csv
+output/
+__pycache__/
