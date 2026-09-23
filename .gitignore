@@ -18,3 +18,5 @@ data/
 output/
 __pycache__/
 output/
+data/
+data_shanghai_converted/

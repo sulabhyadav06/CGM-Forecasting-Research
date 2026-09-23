@@ -21,6 +21,7 @@ Note: the reference paper uses OpenAPS and Replace-BG datasets. This project rep
 3. **`multimodel_architecture_compare.py`** — fixes the feature set and instead compares 5 architectures (LSTM, GRU, BiLSTM, TCN, Transformer) across all 12 patients and all 3 horizons, with the full clinical metric suite (RMSE, MAE, MARD, time-lag, Clarke Error Grid zone distribution).
 4. **`significance_test.py`** — Wilcoxon signed-rank significance testing (paired by patient) for both the feature-set and architecture comparisons, run directly from the output CSVs.
 5. **`clinical_metrics.py`** — shared module: MARD, cross-correlation time-lag, and Clarke Error Grid zone classification (A–E).
+6. **`CGM_Forecasting_Experiments.ipynb`** — documents the experimental configuration, preprocessing workflow, evaluation metrics, patient-level results, statistical analysis, Shanghai experiments, and cross-dataset comparison.
 
 All scripts train patients in parallel via `ProcessPoolExecutor` and use early stopping, since the full grid (12 patients × 3 horizons × up to 6 feature sets or 5 architectures) is a substantial training workload.
 
@@ -69,12 +70,29 @@ Feature sets B/D/F (heart-rate-dependent) run on the 6 2018 patients only, since
 
 Two patients (540, 567 — both 2020 cohort) are consistently the hardest to forecast across every architecture and horizon; patient 540 also shows the worst clinical-safety numbers (11.8% of 60-min predictions in dangerous CEGA zones with Transformer). See the full report for the per-patient breakdown.
 
+
+## Shanghai Dataset and Cross-Dataset Analysis
+
+The Shanghai T1DM dataset was subsequently processed using a dedicated preprocessing and architecture-comparison pipeline.
+
+The experiment includes:
+
+- 12 patients
+- 15-, 30-, and 60-minute forecasting horizons
+- LSTM, GRU, BiLSTM, TCN, and Transformer architectures
+- RMSE, MAE, MARD, Time Lag, and Clarke Error Grid Analysis (CEGA)
+
+The resulting experiment contains 180 patient-level results:
+
+**12 patients × 3 horizons × 5 architectures = 180 results**
+
+Patient-level results and Mean ± SD summaries are retained separately.
+
+A cross-dataset comparison between OhioT1DM and Shanghai was also performed to examine differences in architecture performance across the two datasets. These results are treated as dataset-level comparisons rather than assuming direct transferability between datasets.
+
 ## Full Report
 
 The complete findings — patient-wise tables for both experiments, full statistical testing, CEGA zone breakdowns, and limitations — are in [`reports/CGM_Forecasting_Combined_Report.md`](reports/CGM_Forecasting_Combined_Report.md).
 
-## Next Steps
+The experimental workflow and generated results are also documented in [`CGM_Forecasting_Experiments.ipynb`](CGM_Forecasting_Experiments.ipynb).
 
-- Shanghai dataset (T1DM/T2DM, 15-min sampling) — exploratory analysis complete; training pipeline not yet run.
-- N-BEATS (univariate variant) and Temporal Fusion Transformer — not yet implemented.
-- Cross-dataset generalizability comparison (Ohio vs. Shanghai) once both pipelines are complete.
