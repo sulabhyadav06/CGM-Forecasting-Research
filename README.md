@@ -75,6 +75,8 @@ This is a stronger and more defensible conclusion than claiming the hybrid model
 ## Repository structure
 
 Key project files:
+- [CGM_Forecasting_Experiments.ipynb](CGM_Forecasting_Experiments.ipynb) — original historical notebook
+- [CGM_Forecasting_Experiments_Continuation.ipynb](CGM_Forecasting_Experiments_Continuation.ipynb) — final stage continuation notebook
 - [hybrid_models.py](hybrid_models.py) — final hybrid architecture
 - [hybrid_experiments.py](hybrid_experiments.py) — training and evaluation pipeline
 - [phase2_gap_safe_architecture_ablation.py](phase2_gap_safe_architecture_ablation.py) — architecture comparison workflow
@@ -84,14 +86,3 @@ Key project files:
 - [mini_paper.md](mini_paper.md) — paper-ready summary draft
 
 ---
-
-## Final status
-
-This project is complete as a research package, with:
-- implemented multimodal preprocessing
-- final hybrid model architecture
-- validated benchmark outputs
-- result summaries and paper-ready narrative
-- repository commit recorded in git
-
-The remaining work, if desired, is purely editorial: turning the existing results into a polished journal article, conference abstract, or final thesis chapter.
