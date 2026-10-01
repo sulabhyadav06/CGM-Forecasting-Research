@@ -4,6 +4,7 @@ import argparse
 
 import numpy as np
 
+import clinical_metrics
 from clinical_metrics import time_lag_minutes
 
 
@@ -78,6 +79,25 @@ def test_leading_prediction_is_documented():
     )
 
     return observed
+
+
+def test_mard_uses_absolute_reference_values():
+    """MARD should normalize by |y_true|, not by a signed max(…, eps)."""
+    y_true = np.array([-10.0, 0.0, 10.0])
+    y_pred = np.array([0.0, 0.0, 0.0])
+    expected = (np.mean(np.abs(y_true - y_pred) / np.maximum(np.abs(y_true), 1e-6)) * 100.0)
+    observed = clinical_metrics.mard(y_true, y_pred)
+    assert observed == expected
+
+
+def test_time_lag_minutes_rejects_mismatched_lengths():
+    y_true = np.array([1.0, 2.0, 3.0])
+    y_pred = np.array([1.0, 2.0])
+    try:
+        clinical_metrics.time_lag_minutes(y_true, y_pred)
+    except ValueError:
+        return
+    raise AssertionError("Expected ValueError for mismatched input lengths")
 
 
 def main():
