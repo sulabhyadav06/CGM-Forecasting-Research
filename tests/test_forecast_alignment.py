@@ -35,6 +35,15 @@ class ForecastAlignmentTests(unittest.TestCase):
                 self.assertIn("end_anchor=train_end", source)
                 self.assertIn("start_anchor=split_idx", source)
 
+    def test_loaders_support_both_csv_layouts_and_header_case(self):
+        for name in SCRIPTS:
+            with self.subTest(script=name):
+                source = (ROOT / name).read_text(encoding="utf-8")
+                self.assertIn('os.path.join(root, split, f"{patient}.csv")', source)
+                self.assertIn('f"{patient}_{suffix}_multimodal.csv"', source)
+                self.assertIn('str(column).strip().lower()', source)
+                self.assertIn('pd.to_datetime(df["timestamp"], errors="raise")', source)
+
     def test_windows_check_five_minute_continuity(self):
         for name in SCRIPTS:
             with self.subTest(script=name):
