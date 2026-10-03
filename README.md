@@ -98,3 +98,18 @@ The complete findings — patient-wise tables for both experiments, full statist
 
 The experimental workflow and generated results are also documented in [`CGM_Forecasting_Experiments.ipynb`](CGM_Forecasting_Experiments.ipynb).
 
+
+
+## Corrected full Phase-2 evaluation (2026-10-03)
+
+**Use [the corrected full evaluation report](reports/phase2_full_evaluation_2026-10-03.md) for the latest run.** The older result tables elsewhere in this README describe earlier experiments and must not be treated as results from the corrected full-grid run.
+
+The corrected run covers all 12 OhioT1DM patients, 10 architecture candidates, three horizons (15/30/60 minutes), and common-feature ablations. It records 198 model/feature fits and 594 patient-horizon metric rows, with no recorded training failures. Exact 5-minute contiguous windows, chronological train/validation boundaries, and horizon-aligned targets are enforced. Independent checks reported zero validation failures.
+
+The corrected descriptive results do **not** support a blanket claim that one architecture is best or that multimodal inputs always help:
+- The lowest mean-MAE architecture varied by cohort and forecast horizon.
+- Tested models generally did not beat last-observation persistence at 15 minutes, rarely did at 30 minutes, and achieved only modest mean improvements at 60 minutes.
+- Glucose-only forecasts had lower average MAE than the common multimodal feature sets at 15 and 30 minutes; auxiliary inputs showed small, patient-dependent differences at 60 minutes.
+- These are research metrics, not clinical validation. Patient-level comparisons have small sample sizes, and clinical error-grid implementation details require expert review before publication.
+
+The report describes the run protocol, feature availability, persistence comparison, limitations, and artifact inventory. The result bundle contains patient-level metrics, predictions, histories, audits, validation outputs, and logs in the local evaluation package; large generated artifacts are not all tracked in GitHub yet. OhioT1DM source data remain excluded under the dataset access agreement.
