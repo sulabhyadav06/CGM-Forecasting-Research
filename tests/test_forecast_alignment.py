@@ -35,6 +35,17 @@ class ForecastAlignmentTests(unittest.TestCase):
                 self.assertIn("end_anchor=train_end", source)
                 self.assertIn("start_anchor=split_idx", source)
 
+    def test_all_patient_runner_includes_all_twelve_patient_ids(self):
+        source = (ROOT / "run_phase2_hybrid_all_patients.py").read_text(encoding="utf-8")
+        for patient in ("540", "544", "552", "567", "584", "596",
+                        "559", "563", "570", "575", "588", "591"):
+            with self.subTest(patient=patient):
+                self.assertIn(f'"{patient}"', source)
+        self.assertIn('"--horizons"', source)
+        self.assertIn('default=[15, 30, 60]', source)
+        self.assertIn('"hybrid_experiments.py"', source)
+        self.assertIn('"hybrid_ablation_experiments.py"', source)
+
     def test_loaders_support_both_csv_layouts_and_header_case(self):
         for name in SCRIPTS:
             with self.subTest(script=name):
