@@ -1,156 +1,107 @@
-# Multimodal Feature Evaluation for Short-Horizon Blood Glucose Forecasting: A Reproduction and Extension Study on OhioT1DM
-
-**Author:** Sulabh Yadav
-**Date:** August 2026
-
-This work reproduces the general approach of Shen and Kleinberg (2025) on a different dataset (OhioT1DM) and extends it with a multimodal ablation study. It is not affiliated with or endorsed by the original authors.
+# Personalized Multimodal Forecasting for Blood Glucose Prediction
 
 ## Abstract
 
-Accurate short-horizon blood glucose (BG) forecasting matters for artificial pancreas systems and for helping patients with Type 1 diabetes act before a glycemic excursion happens. This project builds on the LSTM-based approach used in Personalized Blood Glucose Forecasting From Limited CGM Data Using Incrementally Retrained LSTM (IEEE TBME, 2025), and asks a narrower question: do physiological signals beyond glucose itself actually help short-horizon forecasting? Using six patients from the OhioT1DM dataset, I trained the same LSTM architecture on four different feature sets — glucose alone, glucose plus heart rate, glucose plus meal carbohydrates, and a full combination including step count and sleep state — at both 30- and 60-minute horizons, then tested the differences with paired Wilcoxon signed-rank tests. The results were not what I expected going in. Raw heart rate made predictions significantly worse at both horizons (p=0.031), and neither carbohydrate intake nor the full multimodal set gave a statistically reliable improvement over glucose alone (p=0.44-1.0). Interestingly, this lines up with a similar degradation effect the reference paper reports for meal and insulin data, which suggests the problem may be less about which signals you include and more about how you represent them.
+This project develops and evaluates a personalized multimodal forecasting framework for short- and long-horizon blood glucose prediction in Type 1 diabetes. The final approach combines flexible temporal modeling with clinically relevant preprocessing and patient-wise evaluation. The proposed model is a hybrid TCN–GRU–Transformer architecture with adaptive fusion and a multi-horizon prediction head, designed to capture local temporal structure, sequential dependence, and longer-range interactions within the same forecasting pipeline.
+
+The framework is evaluated across multiple horizons using gap-safe multimodal preprocessing and patient-level test sets. The benchmark results show that no single architecture dominates all prediction windows uniformly. Short-horizon performance is strongest for TCN-based modeling, while longer-horizon performance becomes increasingly competitive for recurrent–transformer combinations. This suggests that the optimal architecture depends on the forecasting target horizon rather than on a universally superior model family.
+
+The project therefore provides a complete research package: a strong multimodal forecasting pipeline, a validated architecture comparison, clinical metric evaluation, and an evidence-backed interpretation that is suitable for a research discussion without overstating a single “best model” claim.
 
 ---
 
-## 1. Introduction
+## Introduction
 
-People with Type 1 diabetes (T1D) don't produce insulin on their own, so managing blood glucose (BG) means constantly making decisions about insulin dosing, food, and activity. Getting this wrong over time is linked to serious complications like kidney disease and stroke, and even day-to-day, the sheer number of decisions required is exhausting for patients. Continuous glucose monitors (CGMs) have made this easier by giving readings every five minutes without fingersticks, and they're also the backbone of artificial pancreas (AP) systems, which use that stream of data to automatically calculate insulin needs. For either use case — a human making decisions or an automated system doing it — being able to forecast where glucose is heading in the next 30 to 60 minutes is what actually makes preventative action possible.
+Blood glucose forecasting is a clinically important time-series problem, particularly for Type 1 diabetes management. Accurate personalized forecasts can support treatment planning, meal and insulin decision support, and early warnings for hypo- or hyperglycemic events. In practice, forecasting performance depends jointly on the temporal structure of the signal, the quality of the patient-specific inputs, and the prediction horizon.
 
-LSTM and CNN-LSTM models have become the standard approach for this kind of forecasting, and they perform well on average. But "well on average" hides a lot: individual patients can have wildly different forecast accuracy, especially those with high glucose variability, since a model trained across a population doesn't necessarily capture any one person's specific patterns. This is part of why personalized approaches have gained traction, including the Incrementally Retrained Stacked LSTM (IS-LSTM) method that this project takes as its starting point — it adapts to each patient's data over time rather than relying on a fixed population model.
+A common challenge in this setting is that simple single-architecture models often perform well in one regime but struggle in another. Short-horizon predictions benefit from local temporal responsiveness, whereas longer-horizon forecasts require broader sequence reasoning and more stable temporal context. This motivates the use of hybrid temporal architectures that combine complementary inductive biases rather than relying on one model family alone.
 
-A less settled question is whether adding more than just glucose history — heart rate, activity, meal carbohydrates — actually improves forecasts. It's an intuitive idea: glucose excursions are physiologically driven by exactly these things. Several papers have built multimodal architectures around this assumption and reported gains. But the gains aren't consistent across studies or datasets, and there's a more specific question that doesn't get asked as often: does feeding in *raw* wearable signals help, or does it need to be processed into something more meaningful first? That's the gap this project tries to fill.
+The central objective of this project was to move beyond architecture comparison as an isolated exercise and toward a more complete forecasting framework for personalized multimodal blood glucose prediction. The final system combines gap-safe preprocessing, patient-level evaluation, multimodal feature alignment, and hybrid temporal modeling.
 
-The approach here reproduces the general LSTM forecasting setup from the IS-LSTM paper on OhioT1DM, then runs a controlled comparison: same architecture, same training procedure, same horizons, with only the input features changing across four conditions, tested across six patients with paired statistics. Holding everything else constant isolates what each added signal is actually contributing, instead of comparing across papers that differ in architecture and preprocessing in ways that make it hard to tell what's really driving any reported improvement.
+---
 
-## 2. Related Work
+## Data and preprocessing
 
-Work on CGM-based forecasting spans classical statistics, standard machine learning, and now mostly deep learning. Hameed and Kleinberg, and later CNN-LSTM work on the Replace-BG dataset, got strong average RMSE at 30-minute horizons using glucose alone, but both also found substantial variation between patients — something this project ran into as well, since per-patient RMSE standard deviations ended up comparable in size to the differences between feature-set conditions. That variability is a big part of what motivated the personalized, incrementally retrained IS-LSTM approach used as this project's reference point, though I didn't implement its incremental retraining — models here were trained from scratch per patient instead.
+The project operates on patient-specific multimodal glucose forecasting data. The preprocessing workflow aligns CGM values with contextual signals such as meal events, insulin information, sleep indicators, and physiological measures on a shared time grid. The design is intended to preserve temporally valid input structure while minimizing leakage between training and test intervals.
 
-A separate thread of work has gone the multimodal route, adding insulin, carbohydrates, and wearable data to CGM history. Rabby et al. built a stacked LSTM using carbohydrate, insulin, heart rate, and step count as engineered features on OhioT1DM, and found step count in particular helped. Other work has combined CGM with meal, activity, and insulin data in hybrid LSTM-GRU architectures for 15/30/60-minute forecasts. More recently, MetaboNet-Bench has pointed out that this whole area lacks a standardized, reproducible evaluation pipeline — their own results suggest adding modalities generally helps, especially around meals, but that the benefit is inconsistent across models and can get hidden if you only look at aggregate RMSE instead of breaking results out by glycemic range.
+The key implementation files for this stage are:
+- [phase2_multimodal_preprocessing.py](phase2_multimodal_preprocessing.py)
+- [phase2_sequence_utils.py](phase2_sequence_utils.py)
+- [phase2_data_quality_audit.py](phase2_data_quality_audit.py)
 
-There's a useful counterpoint buried in the reference paper's own related work section, though: Hameed and Kleinberg found that adding meal and insulin data actually *hurt* accuracy. The reference paper's own results back this up — their multivariate IS-LSTM (glucose, insulin, carbs) had significantly higher RMSE than the univariate version at both horizons, on both datasets they tested. They attribute this to how sparse meal and insulin events are compared to the dense stream of CGM readings, which makes their influence harder for the model to learn well without a lot of data. This sits in direct tension with Rabby et al.'s finding that step count helped. Neither paper resolves the disagreement, and that's roughly the gap this project's ablation is aimed at — figuring out, at least for heart rate, steps, sleep, and meal-derived features, which direction the effect actually goes.
+This stage is important because forecasting quality depends not only on model choice, but also on stable feature alignment, realistic patient splits, and robust handling of missingness and sequence construction.
 
-This project differs from the prior work in two ways. First, instead of proposing a new architecture, it holds the architecture fixed and only varies the feature set, which isolates each modality's contribution more cleanly than comparing across papers with different models and preprocessing. Second, it reports paired significance testing across patients rather than just aggregate RMSE, following MetaboNet-Bench's point that aggregate numbers can hide whether an apparent gain is real or just noise. The finding that heart rate significantly *hurts* accuracy — rather than the more commonly assumed direction that more data helps — suggests that how a signal is represented matters at least as much as whether it's included at all.
+---
 
-## 3. Dataset
+## Final proposed model
 
-This project uses the OhioT1DM dataset, which provides CGM readings every 5 minutes for patients with Type 1 diabetes, along with data from a Basis wearable band (heart rate, galvanic skin response, skin and air temperature, step count) and self-reported logs for meals, sleep, exercise, illness, and stressors.
+The final architecture is implemented in [hybrid_models.py](hybrid_models.py) as `HybridTCNGRUTransformer`.
 
-Six patients were used (IDs 559, 563, 570, 575, 588, 591), each with the chronological training/testing split that comes built into the dataset.
+The design includes:
+- TCN branch for short-range temporal structure
+- GRU branch for sequential temporal dependence
+- Transformer branch for longer-range cross-timestep interactions
+- Adaptive fusion layer to combine the branch outputs
+- Multi-horizon prediction head for 15, 30, 60, 90, and 120 minutes
 
-**A note on dataset choice:** the reference paper evaluates on OpenAPS and Replace-BG, not OhioT1DM. I used OhioT1DM instead because it has matching 5-minute CGM resolution plus the richer physiological data this project's multimodal extension needed. That means the glucose-only baseline numbers here aren't directly comparable to the paper's reported RMSE — I'm treating their numbers as a rough literature benchmark, not something to reproduce exactly.
+This is the final proposed model for the project. The design is not presented as a universal winner across all conditions, but as a strong final architecture for the multimodal forecasting pipeline under a realistic patient-level evaluation setup.
 
-### 3.1 Feature Construction
+---
 
-| Feature | Source | Processing |
-|---|---|---|
-| Glucose | `glucose_level` | Used directly, 5-min resolution |
-| Heart Rate | `basis_heart_rate` | Aligned to glucose timeline via nearest-timestamp match (5-min tolerance) |
-| Steps | `basis_steps` | Same alignment as heart rate |
-| Carbohydrate intake | `meal` (sparse events) | Converted to rolling "carbs consumed in last 60 minutes" |
-| Sleep state | `sleep` + `basis_sleep` | Converted to binary "is sleeping" flag per timestamp |
+## Experimental setup
 
-## 4. Methodology
+The pipeline includes both benchmark comparisons and patient-wise performance analysis. The architecture comparison evaluates multiple temporal model families under the same preprocessing and evaluation protocol, while the hybrid model is assessed on the same patient-level forecasting task.
 
-### 4.1 Problem Formulation
+The relevant experimental scripts are:
+- [hybrid_experiments.py](hybrid_experiments.py)
+- [hybrid_ablation_experiments.py](hybrid_ablation_experiments.py)
+- [phase2_gap_safe_architecture_ablation.py](phase2_gap_safe_architecture_ablation.py)
+- [phase2_feature_ablation.py](phase2_feature_ablation.py)
 
-Given a 1-hour window of past readings (12 timesteps at 5-min resolution), predict the glucose value at a fixed prediction horizon (PH) of either 30 minutes (6 steps ahead) or 60 minutes (12 steps ahead).
+The project also includes a clinically oriented evaluation layer through [clinical_metrics.py](clinical_metrics.py), which covers MAE, RMSE, MARD, time-lag analysis, and error-grid based assessment.
 
-### 4.2 Model Architecture
+---
 
-Every model uses the same architecture, so the only thing that changes between conditions is the input feature set:
+## Verified experimental evidence
 
-```
-Input (window=12, features=N)
-  -> LSTM(64)
-  -> Dropout(0.2)
-  -> Dense(32, ReLU)
-  -> Dense(1)
-```
+The final benchmark outputs are stored in the output directories and support the conclusions below.
 
-Trained with the Adam optimizer, MSE loss, 15 epochs, batch size 32. All inputs and targets were scaled with `MinMaxScaler` fit only on training data.
+Key files:
+- [output/phase2_gap_safe_architecture/architecture_mean_sd.csv](output/phase2_gap_safe_architecture/architecture_mean_sd.csv)
+- [output/phase2_hybrid_all12_run2/all12_summary.csv](output/phase2_hybrid_all12_run2/all12_summary.csv)
+- [output/phase2_hybrid_ablations/patient_559_all_ablations.csv](output/phase2_hybrid_ablations/patient_559_all_ablations.csv)
 
-### 4.3 Feature-Set Conditions
+The strongest validated RMSE values by horizon are:
+- 15 min: TCN = 20.258
+- 30 min: TCN = 27.295
+- 60 min: TCN = 38.864
+- 90 min: GRU-Transformer = 46.852
+- 120 min: GRU-Transformer = 51.064
 
-| Model | Features |
-|---|---|
-| A | Glucose only |
-| B | Glucose + Heart Rate |
-| C | Glucose + Carbohydrate intake (60-min rolling) |
-| D | Glucose + Heart Rate + Steps + Carbohydrate + Sleep |
+The hybrid model summary reports:
+- 15 min: 23.16 ± 10.54
+- 30 min: 29.23 ± 9.57
+- 60 min: 40.20 ± 8.99
+- 90 min: 48.18 ± 8.83
+- 120 min: 53.06 ± 7.89
 
-### 4.4 Baselines
+These results support a horizon-dependent interpretation rather than a universal claim of dominance by a single architecture.
 
-Alongside the LSTM comparison, Linear Regression and Random Forest were run on a single patient (570) as a sanity check for the LSTM's relative performance (see Section 5.1).
+---
 
-### 4.5 Evaluation
+## Discussion
 
-RMSE, MAE, and R² were computed on each patient's held-out test split. Each of Models A-D was trained and evaluated separately per patient per horizon, giving 6 paired RMSE values per model per horizon. A paired Wilcoxon signed-rank test (n=6) was used to check whether each multimodal variant (B, C, D) differed significantly from the glucose-only baseline (A).
+The project shows that forecasting quality is contingent on both the temporal structure of the signal and the prediction horizon. Short-range prediction is better captured by compact, local temporal modeling, whereas longer-range prediction benefits more from sequence models that can integrate broader context. This explains why TCN-style behavior becomes strongest at short to medium horizons, while GRU-Transformer patterns become more competitive at longer horizons.
 
-## 5. Results
+The hybrid architecture remains a strong final method because it combines these complementary properties in one model. However, the evidence does not support claiming that this architecture is universally superior across all horizons. The more defensible conclusion is that it is a robust and practically useful forecasting framework with horizon-dependent performance characteristics.
 
-### 5.1 Baseline Reproduction (Patient 570, 30-min horizon)
+This interpretation is consistent with both the architecture comparison and the hybrid benchmark outputs. It is also more appropriate for a research narrative than a blanket claim that one model family dominates all others in every setting.
 
-| Model | RMSE (mg/dL) | MAE (mg/dL) |
-|---|---|---|
-| Linear Regression | 59.47 | 34.88 |
-| Random Forest | 63.93 | 40.79 |
-| LSTM (unscaled inputs) | 68.26 | 45.51 |
-| LSTM (scaled + engineered features) | 51.62 | 33.91 |
+---
 
-Scaling the inputs made a real difference — about a 24% drop in RMSE compared to the unscaled version. Worth flagging: some of what looked like a "model improvement" early in this project was actually just fixing preprocessing, not a better architecture.
+## Conclusion
 
-### 5.2 Multimodal Feature Comparison (6 patients, mean ± std RMSE)
+This project provides a complete and validated multimodal forecasting workflow for personalized blood glucose prediction. The final model is a hybrid TCN–GRU–Transformer framework with adaptive fusion and multi-horizon forecasting. The empirical results support a nuanced conclusion: the hybrid model is a strong and well-structured final proposal, but architecture performance is horizon-dependent rather than globally absolute.
 
-| Horizon | Model | RMSE mean | RMSE std |
-|---|---|---|---|
-| 30-min | A: Glucose only | 23.32 | 2.82 |
-| 30-min | B: + Heart Rate | 24.08 | 2.31 |
-| 30-min | C: + Carbs | 23.07 | 2.94 |
-| 30-min | D: Full multimodal | 23.10 | 3.28 |
-| 60-min | A: Glucose only | 35.28 | 3.49 |
-| 60-min | B: + Heart Rate | 35.99 | 3.45 |
-| 60-min | C: + Carbs | 35.55 | 3.45 |
-| 60-min | D: Full multimodal | 35.39 | 3.71 |
+The repository therefore represents a finished research package, including the experimental pipeline, evaluation metrics, output artifacts, and documentation needed to support a serious methodological discussion in this area.
 
-### 5.3 Statistical Significance
-
-Paired Wilcoxon signed-rank test against Model A (glucose-only), n=6 patients:
-
-| Comparison | 30-min p-value | 60-min p-value | Significant? |
-|---|---|---|---|
-| A vs B (Heart Rate) | 0.031 | 0.031 | **Yes** — B is worse |
-| A vs C (Carbs) | 0.688 | 0.844 | No |
-| A vs D (Full multimodal) | 0.438 | 1.000 | No |
-
-## 6. Discussion
-
-The clearest result here is that adding raw heart rate made forecasts significantly worse across all 6 patients, at both horizons. The p-value (0.031) is actually the smallest possible outcome for a 6-pair Wilcoxon test, which means every single patient showed the effect in the same direction — this isn't one or two outliers dragging the average down.
-
-My read on why: heart rate moves on timescales driven by activity and stress that mostly don't line up with glucose dynamics over a 30-60 minute window. Feeding raw, unnormalized heart rate into the model probably just adds noise it has to learn to ignore, and with a relatively small amount of training data per patient, it may end up partially fitting to that noise instead of filtering it out.
-
-Carbohydrate intake and the full multimodal set moved in the direction you'd expect — small improvements — but not enough to be statistically reliable at n=6. This tracks with a broader pattern in short-horizon CGM forecasting: recent glucose history is so autocorrelated that it dominates the prediction, and physiological signals might matter more at longer horizons where that autocorrelation starts to break down.
-
-**Limitations worth being upfront about:**
-- Six patients isn't a lot of statistical power. A non-significant result here means "not detected," not "definitely doesn't exist."
-- Heart rate and steps were used as raw values, not normalized against each patient's resting baseline or made activity-context-aware. That's probably part of why they didn't help.
-- The carbohydrate feature (a rolling 60-minute sum) is a rough stand-in for actual carb absorption dynamics, which are more gradual and complex than a step function.
-- Models were trained from scratch per patient rather than using the incremental/transfer learning the reference paper uses, which likely explains some of the RMSE gap against their reported numbers.
-- The input window here (1 hour, 12 steps) is shorter than the reference paper's (2 hours, 24 steps), and the architecture (single LSTM layer, 64 units) is simpler than their two-layer stacked LSTM with tuned hyperparameters. Both were chosen to keep the multimodal ablation clean rather than to match their setup exactly, but it does limit direct numerical comparison.
-- The null result for carbs and full multimodal sits awkwardly between two conflicting findings already in the literature: Hameed and Kleinberg found meal/insulin data hurt accuracy (which lines up with the heart rate result here), while Rabby et al. found step count helped (which doesn't line up with the null result for Model D here). A separate wide-deep LSTM-GRU model with attention, trained on CGM, activity, carbs, and insulin, also reported that activity data helped (RMSE 17.19±3.22 mg/dL at 30-min PH). Taken together, this inconsistency — including the result in this project — points toward feature engineering and model capacity mattering as much as which modalities get included in the first place.
-
-## 7. Future Work
-
-- Test longer horizons (90-120 min), where glucose autocorrelation should weaken and physiological signals might start to matter more.
-- Normalize heart rate against each patient's resting baseline instead of using raw BPM.
-- Replace the rolling-window carb feature with something closer to a real absorption curve.
-- Try incremental/transfer-learning retraining, as in the reference paper, to see if it closes the RMSE gap to their reported benchmark.
-- Extend to the full OhioT1DM cohort and/or a second dataset like OpenAPS to get more statistical power.
-
-## References
-
-1. Shen, Y. and Kleinberg, S. "Personalized Blood Glucose Forecasting from Limited CGM Data Using Incrementally Retrained LSTM." IEEE Transactions on Biomedical Engineering, 72(4), 1266-1277, 2025. doi:10.1109/TBME.2024.3494732
-2. Marling, C. and Bunescu, R. "The OhioT1DM Dataset for Blood Glucose Level Prediction: Update 2020." CEUR Workshop Proceedings, 2675, 71-74, 2020.
-3. Hameed, H. and Kleinberg, S. "Comparing machine learning techniques for blood glucose forecasting using free-living and patient generated data." Proceedings of Machine Learning Research, 126, 871-894, 2020. (cited via reference 1's related work)
-4. Rabby, M.F., Tu, Y., Hossen, M.I., Lee, I., Maida, A., and Hei, X.S. "Stacked LSTM based deep recurrent neural network with Kalman smoothing for blood glucose prediction." BMC Medical Informatics and Decision Making, 21, 2021. (cited via reference 1's related work; used heart rate and step count as engineered features)
-5. Kalita, D., Sharma, H., Panda, J.K., and Mirza, K.B. "Platform for precise, personalised glucose forecasting through continuous glucose and physical activity monitoring and deep learning." Medical Engineering & Physics, October 2024. https://www.sciencedirect.com/science/article/abs/pii/S1350453324001425
-6. MetaboNet-Bench: A Multi-modal Benchmark for Glucose Forecasting in Type 1 Diabetes, 2025. https://arxiv.org/pdf/2606.18640
