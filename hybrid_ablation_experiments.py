@@ -37,16 +37,35 @@ def set_seed(seed=42):
 # ============================================================
 
 class CGMSequenceDataset(Dataset):
-    """Windowed sequences with explicit anchor bounds for chronological splits."""
+    """Windowed sequences with explicit anchors and strict 5-minute continuity."""
 
     def __init__(self, data, features, targets, lookback_steps, start_anchor=None, end_anchor=None):
         self.values = data[features + targets].values.astype(np.float32)
         self.n_features = len(features)
         self.lookback_steps = lookback_steps
-        self.start_anchor = max(lookback_steps, start_anchor if start_anchor is not None else lookback_steps)
-        self.end_anchor = len(data) if end_anchor is None else min(end_anchor, len(data))
-        self.end_anchor = max(self.start_anchor, self.end_anchor)
-        self.anchors = range(self.start_anchor, self.end_anchor)
+        self.timestamps = pd.to_datetime(data["timestamp"]).reset_index(drop=True)
+        start = max(lookback_steps, start_anchor if start_anchor is not None else lookback_steps)
+        end = len(data) if end_anchor is None else min(end_anchor, len(data))
+        self.anchors = []
+        horizon_minutes = [int(c.removeprefix("target_")) for c in targets]
+        for i in range(start, end):
+            # Every input sample must be 5 minutes apart.
+            window_times = self.timestamps.iloc[i-lookback_steps:i]
+            if len(window_times) != lookback_steps:
+                continue
+            deltas = window_times.diff().dropna()
+            if not (deltas == pd.Timedelta(minutes=5)).all():
+                continue
+            last_input_time = self.timestamps.iloc[i-1]
+            if any(
+                i + h // 5 - 1 >= len(data)
+                or self.timestamps.iloc[i + h // 5 - 1] != last_input_time + pd.Timedelta(minutes=h)
+                for h in horizon_minutes
+            ):
+                continue
+            if not np.isfinite(self.values[i, self.n_features:]).all():
+                continue
+            self.anchors.append(i)
 
     def __len__(self):
         return len(self.anchors)
