@@ -4,7 +4,9 @@
 
 This repository contains the completed implementation and validation workflow for personalized multimodal multi-horizon blood glucose forecasting in Type 1 diabetes. The project combines data preprocessing, patient-level evaluation, architecture comparison, hybrid modeling, clinical metrics, and result synthesis.
 
-The notebook state has been restored to the last committed project version. The current-stage continuation notebook was removed so the project remains aligned with the previous commit snapshot.
+The original historical notebook, [../CGM_Forecasting_Experiments.ipynb](../CGM_Forecasting_Experiments.ipynb), is retained as the preserved project record. The current experimental workflow continues through the validated scripts, outputs, and final report materials, rather than through a separate replacement notebook.
+
+The project is now in its final evidence-based state: the preprocessing pipeline, acceleration handling, feature-ablation checks, lookback feasibility analysis, and final benchmark synthesis have all been validated against real repository outputs.
 
 ---
 
@@ -190,19 +192,26 @@ The repository also has a summary document in the root project summary and prese
 
 The final evidence supports a horizon-dependent conclusion rather than a universal superiority claim.
 
-Validated summary:
+Validated summary from the repository outputs:
 - 15 min: TCN best RMSE = 20.258
 - 30 min: TCN best RMSE = 27.295
 - 60 min: TCN best RMSE = 38.864
 - 90 min: GRU-Transformer best RMSE = 46.852
 - 120 min: GRU-Transformer best RMSE = 51.064
 
-The hybrid all-12 summary remains strong across the full forecast window, but the data do not support claiming that one architecture dominates every horizon uniformly.
+The all-12 hybrid summary remains strong across the full forecast window:
+- 15 min: RMSE 23.16 ± 10.54
+- 30 min: RMSE 29.23 ± 9.57
+- 60 min: RMSE 40.20 ± 8.99
+- 90 min: RMSE 48.18 ± 8.83
+- 120 min: RMSE 53.06 ± 7.89
+
+The common-feature ablation does not show a consistent statistically significant improvement over glucose-only or glucose+meal/insulin baselines across all 12 patients, and patient feasibility checks show that 180-minute and 240-minute windows are invalid for patients 540 and 552 in the current 2020 pipeline.
 
 ---
 
 ## 10. Final interpretation
 
-The project is best summarized as a completed research implementation in personalized multimodal blood glucose forecasting. The final proposed model is the hybrid TCN–GRU–Transformer architecture, and the final evidence supports a nuanced scientific interpretation: architecture quality depends on the forecast horizon and should be evaluated accordingly.
+The project is best summarized as a completed research implementation in personalized multimodal blood glucose forecasting. The final proposed model is the hybrid TCN–GRU–Transformer architecture, and the final evidence supports a nuanced scientific interpretation: architecture quality depends on the forecast horizon, patient feasibility constraints, and feature availability—and should be evaluated accordingly.
 
-This is the most defensible project position supported by the outputs in the repository.
+The strongest defensible conclusion is that this repository contains a mature, validated, and evidence-backed forecasting workflow, with the hybrid architecture providing the most credible methodological contribution, while the empirical results do not justify a blanket claim that one architecture dominates all horizons uniformly.

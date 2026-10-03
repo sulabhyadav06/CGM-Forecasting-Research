@@ -256,6 +256,7 @@ def run_case(root, cohort, pid, split, feature_name, features):
     if not path.exists():
         raise FileNotFoundError(path)
     df = load_df(path)
+    df["glucose_target_raw"] = df["glucose"]
 
     missing = [c for c in features if c not in df.columns]
     if missing:
@@ -269,7 +270,7 @@ def run_case(root, cohort, pid, split, feature_name, features):
     Xseq, yseq, meta = build_sequences(
         df,
         feature_cols=features,
-        target_col="glucose",
+        target_col="glucose_target_raw",
         lookback_steps=LOOKBACK,
         horizon_steps=HORIZONS,
         step_min=STEP_MIN,
@@ -319,10 +320,14 @@ def main():
                     print(f"SKIP {pid}: missing {missing}")
                     continue
 
-                # Fit preprocessing only on train.
+                # Fit preprocessing only on train. Keep the prediction target in raw mg/dL.
+                # The input feature named ``glucose`` is standardized, but it must not
+                # also be reused as the clinically reported target after scaling.
                 med = tr[features].replace([np.inf, -np.inf], np.nan).median()
                 tr2 = tr.copy()
                 te2 = te.copy()
+                tr2["glucose_target_raw"] = tr2["glucose"]
+                te2["glucose_target_raw"] = te2["glucose"]
                 tr2[features] = tr2[features].replace([np.inf, -np.inf], np.nan).fillna(med)
                 te2[features] = te2[features].replace([np.inf, -np.inf], np.nan).fillna(med)
                 scaler = StandardScaler()
@@ -332,7 +337,7 @@ def main():
                 X, y, meta = build_sequences(
                     tr2,
                     feature_cols=features,
-                    target_col="glucose",
+                    target_col="glucose_target_raw",
                     lookback_steps=LOOKBACK,
                     horizon_steps=HORIZONS,
                     step_min=STEP_MIN,
@@ -340,7 +345,7 @@ def main():
                 Xt, yt, metat = build_sequences(
                     te2,
                     feature_cols=features,
-                    target_col="glucose",
+                    target_col="glucose_target_raw",
                     lookback_steps=LOOKBACK,
                     horizon_steps=HORIZONS,
                     step_min=STEP_MIN,

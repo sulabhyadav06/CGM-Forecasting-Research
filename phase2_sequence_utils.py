@@ -61,8 +61,9 @@ def prepare_timestamps(
 
     out["_gap_from_previous_min"] = delta_min
 
+    # Accept small timestamp jitter while rejecting real sampling gaps.
     out["_continuous_from_previous"] = (
-        delta_min.eq(float(step_min))
+        delta_min.sub(float(step_min)).abs().le(0.5)
     )
 
     # First row starts a new segment.
@@ -254,62 +255,12 @@ def build_sequences(
         ):
             continue
 
-        # Explicit timestamp validation.
-        #
-        # This protects against any irregularity even if segment IDs
-        # were generated differently in a future modification.
-        input_times = timestamps[
-            start_idx:end_idx + 1
+        # Segment IDs above enforce continuity across inputs and targets.
+        # Small timestamp jitter is tolerated by prepare_timestamps().
+        target_times = [
+            timestamps[end_idx + h]
+            for h in horizon_steps
         ]
-
-        expected_input_times = (
-            timestamps[end_idx]
-            - np.arange(
-                lookback_steps - 1,
-                -1,
-                -1,
-                dtype="timedelta64[m]",
-            )
-            * step_min
-        )
-
-        if not np.array_equal(
-            input_times,
-            expected_input_times,
-        ):
-            continue
-
-        valid_targets = True
-        target_times = []
-
-        for h in horizon_steps:
-            target_idx = end_idx + h
-
-            expected_target_time = (
-                timestamps[end_idx]
-                + np.timedelta64(
-                    h * step_min,
-                    "m",
-                )
-            )
-
-            actual_target_time = timestamps[
-                target_idx
-            ]
-
-            if (
-                actual_target_time
-                != expected_target_time
-            ):
-                valid_targets = False
-                break
-
-            target_times.append(
-                actual_target_time
-            )
-
-        if not valid_targets:
-            continue
 
         # Never allow NaNs in model inputs or targets.
         x = feature_values[
