@@ -13,7 +13,7 @@ This runbook accompanies `reports/FINAL_PROJECT_STATUS_2026-10-03.md`. Raw OhioT
 
 ## Local commands
 
-The source snapshot must include `final_clinical_architecture_evaluation.py`, `final_common_feature_analysis.py`, `final_statistical_analysis.py`, `phase2_sequence_utils.py`, `clinical_metrics.py`, `hybrid_ablation_experiments.py`, `hybrid_models.py`, `ohio2020_acceleration_preprocessing.py`, and `phase2_data_quality_audit.py`.
+The downloadable companion research package includes `final_clinical_architecture_evaluation.py`, `final_common_feature_analysis.py`, `final_statistical_analysis.py`, and the associated tests/configuration. The GitHub repository currently tracks the core model/preprocessing modules, runbook, tests and summary reports; not every generated experiment runner or patient-level output is committed to GitHub. Keep restricted raw data outside version control.
 
 ```bash
 python -m pip install -r requirements-research.txt
