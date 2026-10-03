@@ -6,7 +6,7 @@ This repository contains the completed implementation and validation workflow fo
 
 The original historical notebook, [../CGM_Forecasting_Experiments.ipynb](../CGM_Forecasting_Experiments.ipynb), is retained as the preserved project record. The current experimental workflow continues through the validated scripts, outputs, and final report materials, rather than through a separate replacement notebook.
 
-The project is now in its final evidence-based state: the preprocessing pipeline, acceleration handling, feature-ablation checks, lookback feasibility analysis, and final benchmark synthesis have all been validated against real repository outputs.
+The project is in a verified evidence-based state for its core implementation and architecture benchmark workflow: the preprocessing pipeline, causal acceleration handling, feature-availability gating, and configuration-controlled architecture comparisons have all been validated against real repository outputs. The remaining open issue is not the implementation itself but the strength of the final novelty and component-contribution claims, which still require additional paired ablation evidence.
 
 ---
 
@@ -188,30 +188,62 @@ The repository also has a summary document in the root project summary and prese
 
 ---
 
-## 9. Key findings
+## 9. Established results
 
-The final evidence supports a horizon-dependent conclusion rather than a universal superiority claim.
+The following conclusions are supported by the current code and generated outputs.
 
-Validated summary from the repository outputs:
-- 15 min: TCN best RMSE = 20.258
-- 30 min: TCN best RMSE = 27.295
-- 60 min: TCN best RMSE = 38.864
-- 90 min: GRU-Transformer best RMSE = 46.852
-- 120 min: GRU-Transformer best RMSE = 51.064
+### 9.1 Data integrity and leakage controls
+- The cohort-specific multimodal inputs are intentionally gated by data availability: 2018 uses heart-rate/steps features, while 2020 uses acceleration-derived features; the pipeline explicitly avoids using unavailable signals in a cohort where they do not exist. See [../phase2_multimodal_preprocessing.py](../phase2_multimodal_preprocessing.py) and [../ohio2020_acceleration_preprocessing.py](../ohio2020_acceleration_preprocessing.py).
+- The acceleration preprocessing is strictly causal: it aggregates only acceleration observations before each CGM timestamp and does not use a future-looking window.
+- Sequence construction uses a gap-safe historical lookback with future target offsets and rejects sequences that cross missing gaps or invalid temporal boundaries; this prevents future leakage from entering the input window. See [../phase2_sequence_utils.py](../phase2_sequence_utils.py).
 
-The all-12 hybrid summary remains strong across the full forecast window:
-- 15 min: RMSE 23.16 ± 10.54
-- 30 min: RMSE 29.23 ± 9.57
-- 60 min: RMSE 40.20 ± 8.99
-- 90 min: RMSE 48.18 ± 8.83
-- 120 min: RMSE 53.06 ± 7.89
+### 9.2 Controlled architecture comparisons
+- The architecture benchmark script uses the same patient sets, same lookback, same horizons, same feature set, and the same evaluation pipeline across the compared architectures. See [../phase2_gap_safe_architecture_ablation.py](../phase2_gap_safe_architecture_ablation.py).
+- The generated output file [../output/phase2_gap_safe_architecture/all_results.csv](../output/phase2_gap_safe_architecture/all_results.csv) contains 600 patient-level architecture comparisons across 10 architectures, 12 patients, and 5 horizons.
+- Paired patient-wise Wilcoxon tests on RMSE from the generated output show some short-horizon significance:
+  - GRU vs TCN at 15 min: p = 0.0425
+  - GRU vs Transformer at 15 min: p = 0.0024
+  - GRU vs Transformer at 30 min: p = 0.0068
+  - GRU vs gru_transformer at 30 min: p = 0.0210
+  - GRU vs tcn_gru_transformer at 15 min: p = 0.0010
+  - GRU vs tcn_gru_transformer at 30 min: p = 0.0015
+- These results support a horizon-dependent interpretation rather than a universal dominance claim.
 
-The common-feature ablation does not show a consistent statistically significant improvement over glucose-only or glucose+meal/insulin baselines across all 12 patients, and patient feasibility checks show that 180-minute and 240-minute windows are invalid for patients 540 and 552 in the current 2020 pipeline.
+### 9.3 Verified all-12 hybrid summary
+- The all-12 hybrid summary file [../output/phase2_hybrid_all12/all12_summary.csv](../output/phase2_hybrid_all12/all12_summary.csv) contains patient-wise mean RMSE summaries across the full 12-patient cohort.
+- The current generated summary indicates the following robust trend:
+  - 15 min: RMSE mean = 21.87
+  - 30 min: RMSE mean = 28.61
+  - 60 min: RMSE mean = 39.72
+  - 90 min: RMSE mean = 48.03
+  - 120 min: RMSE mean = 53.41
+- This is a strong evidence-backed summary of the final hybrid pipeline, but it is not a proof that every component of the model contributes independently in a statistically significant way.
 
 ---
 
-## 10. Final interpretation
+## 10. New experimental findings
 
-The project is best summarized as a completed research implementation in personalized multimodal blood glucose forecasting. The final proposed model is the hybrid TCN–GRU–Transformer architecture, and the final evidence supports a nuanced scientific interpretation: architecture quality depends on the forecast horizon, patient feasibility constraints, and feature availability—and should be evaluated accordingly.
+The following are supported as exploratory or emerging findings, but remain more limited than a final proof claim.
 
-The strongest defensible conclusion is that this repository contains a mature, validated, and evidence-backed forecasting workflow, with the hybrid architecture providing the most credible methodological contribution, while the empirical results do not justify a blanket claim that one architecture dominates all horizons uniformly.
+- The hybrid architecture appears competitive in the all-12 assessment and is strongest at short-to-mid horizons, while longer-horizon differences are less pronounced.
+- The single-patient hybrid ablation snapshot [../output/phase2_hybrid_ablations/patient_559_all_ablations.csv](../output/phase2_hybrid_ablations/patient_559_all_ablations.csv) shows that the architecture search is operational and that branch combinations are being tested under a consistent data pipeline.
+- The hybrid outputs suggest a plausible performance advantage over some baselines in selected horizons, but the current repository evidence does not yet support a definitive all-patient claim that the complete branch set is strictly superior to all alternatives.
+- The stronger statistical statement remains open pending an all-patient paired ablation analysis.
+
+---
+
+## 11. Hypotheses about novelty
+
+The following statements should be treated as hypotheses rather than established conclusions.
+
+- The most defensible novelty claim is the integration of gap-safe multimodal preprocessing with a hybrid TCN–GRU–Transformer forecasting architecture under a patient-wise evaluation workflow.
+- A stronger novelty claim — that each branch contributes a statistically measurable improvement beyond the others — is not yet established by the available repository outputs.
+- The data support a plausible research narrative that the hybrid model is promising and especially relevant for short-horizon forecasting, but the component-wise contribution, branch necessity, and universal superiority remain to be demonstrated with full paired ablation statistics across all patients.
+
+---
+
+## 12. Final interpretation
+
+The project is best described as a complete and reproducible research implementation with validated architecture benchmarking and a strong hybrid-model hypothesis, rather than a final definitively proven winner-takes-all architecture result.
+
+The strongest defensible conclusion is that the repository contains a mature forecasting workflow, a coherent benchmark pipeline, and evidence-backed short-horizon architecture differences, while the final claim that the hybrid model definitively outperforms every alternative or that each component contributes independently remains an open but promising research question.
