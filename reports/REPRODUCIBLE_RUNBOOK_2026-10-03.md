@@ -18,7 +18,7 @@ The downloadable companion research package includes `final_clinical_architectur
 ```bash
 python -m pip install -r requirements-research.txt
 python -m py_compile *.py
-python -m pytest -q tests/test_research_protocol.py test_time_lag_metric.py test_time_lag_metric.py
+python -m pytest -q tests/test_research_protocol.py test_time_lag_metric.py
 python phase2_data_quality_audit.py --data-root data/phase2 --output-root output/final_corrected_data_audit
 python final_clinical_architecture_evaluation.py --data-root data/phase2 --out output/final_corrected_architecture_lb120 --epochs 15 --patience 3 --lookback 120
 python final_common_feature_analysis.py
