@@ -128,3 +128,5 @@ The report describes the run protocol, feature availability, persistence compari
 - [Corrected core-run results (preliminary, six architectures)](reports/CORE_RUN_RESULTS_2026-10-03.md)
 
 - [Corrected data-quality audit](reports/DATA_QUALITY_AUDIT_2026-10-03.md) — timestamp gaps, removed constant flags, missingness, and sleep-data limitation.
+
+- [Corrected ten-architecture results and persistence comparison](reports/FULL_ARCHITECTURE_RESULTS_2026-10-03.md) — five horizons, 12 patients, and limitations.
