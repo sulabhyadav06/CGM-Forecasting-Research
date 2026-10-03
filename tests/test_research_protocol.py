@@ -2,6 +2,9 @@
 import numpy as np
 import pandas as pd
 import torch
+import xml.etree.ElementTree as ET
+from parse_xml import parse_bolus
+from ohio2020_acceleration_preprocessing import aggregate_acceleration_to_cgm
 from phase2_sequence_utils import build_sequences
 from clinical_metrics import time_lag_minutes
 from hybrid_ablation_experiments import AblationModel
@@ -25,6 +28,20 @@ def test_known_signed_lag():
     rng=np.random.default_rng(42); truth=rng.normal(size=500)
     pred=np.r_[np.zeros(3),truth[:-3]]
     assert time_lag_minutes(truth,pred,5,8)==15
+
+
+def test_bolus_parser_uses_ts_begin():
+    root=ET.fromstring('<patient><bolus><event ts_begin="01-01-2026 12:00:00" dose="1.25" /><event ts_begin="01-01-2026 12:10:00" dose="2.0" /></bolus></patient>')
+    result=parse_bolus(root)
+    assert len(result)==2 and np.isclose(result.dose.sum(),3.25)
+
+
+def test_acceleration_aggregation_excludes_endpoint_future_event():
+    cgm=pd.DataFrame({"timestamp":pd.to_datetime(["2026-01-01 00:05:00","2026-01-01 00:10:00"]),"glucose":[100,110]})
+    accel=pd.DataFrame({"timestamp":pd.to_datetime(["2026-01-01 00:01:00","2026-01-01 00:02:00","2026-01-01 00:05:00","2026-01-01 00:06:00"]),"value":[1.,3.,99.,5.]})
+    out=aggregate_acceleration_to_cgm(cgm,accel)
+    assert out.loc[0,"accel_mean_5m"]==2.0
+    assert out.loc[1,"accel_mean_5m"]==52.0
 
 
 def test_all_architectures_have_five_outputs_and_adaptive_gates_sum_to_one():
