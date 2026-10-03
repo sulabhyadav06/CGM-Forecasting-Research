@@ -124,3 +124,5 @@ The report describes the run protocol, feature availability, persistence compari
 - See [corrected project status](reports/FINAL_PROJECT_STATUS_2026-10-03.md) and [reproducible runbook](reports/REPRODUCIBLE_RUNBOOK_2026-10-03.md).
 
 **Research caution:** preliminary/short-epoch results do not establish superiority, novelty or clinical safety. Use only corrected-data results, report patient-level comparisons with multiplicity correction, and have the Clarke Error Grid implementation independently reviewed before publication.
+
+- [Corrected core-run results (preliminary, six architectures)](reports/CORE_RUN_RESULTS_2026-10-03.md)
