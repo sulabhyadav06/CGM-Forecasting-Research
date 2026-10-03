@@ -333,19 +333,37 @@ def parse_args():
 # Data preparation
 # ============================================================
 
+def _read_patient_split(root, patient, split):
+    """Load either split/<patient>.csv or the repository's flat multimodal CSV layout."""
+    suffix = "training" if split == "train" else "testing"
+    candidates = [
+        os.path.join(root, split, f"{patient}.csv"),
+        os.path.join(root, f"{patient}_{suffix}_multimodal.csv"),
+        os.path.join(root, f"{patient}_{split}_multimodal.csv"),
+    ]
+    path = next((candidate for candidate in candidates if os.path.isfile(candidate)), None)
+    if path is None:
+        expected = "\n".join(f"  - {candidate}" for candidate in candidates)
+        raise FileNotFoundError(
+            f"Could not find {split} CSV for patient {patient}. Checked:\n{expected}"
+        )
+
+    df = pd.read_csv(path)
+    # Accommodate both lowercase canonical headers and TitleCase CSV exports.
+    df.columns = [str(column).strip().lower() for column in df.columns]
+    required = {"timestamp", "glucose"}
+    missing = required.difference(df.columns)
+    if missing:
+        raise ValueError(
+            f"{path} is missing required columns after header normalization: {sorted(missing)}"
+        )
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="raise")
+    return df.sort_values("timestamp").reset_index(drop=True)
+
+
 def load_data(root, patient):
-    train = pd.read_csv(
-        os.path.join(root, "train", f"{patient}.csv"),
-        parse_dates=["timestamp"],
-    )
-    test = pd.read_csv(
-        os.path.join(root, "test", f"{patient}.csv"),
-        parse_dates=["timestamp"],
-    )
-
-    train = train.sort_values("timestamp").reset_index(drop=True)
-    test = test.sort_values("timestamp").reset_index(drop=True)
-
+    train = _read_patient_split(root, patient, "train")
+    test = _read_patient_split(root, patient, "test")
     return train, test
 
 
