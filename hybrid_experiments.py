@@ -93,10 +93,14 @@ def parse_args():
 def _read_patient_split(root, patient, split):
     """Load either split/<patient>.csv or the repository's flat multimodal CSV layout."""
     suffix = "training" if split == "train" else "testing"
+    cohort = "ohio2018" if str(patient) in {"559", "563", "570", "575", "588", "591"} else "ohio2020"
     candidates = [
         os.path.join(root, split, f"{patient}.csv"),
+        os.path.join(root, "phase2", cohort, split, f"{patient}.csv"),
+        os.path.join(root, cohort, split, f"{patient}.csv"),
         os.path.join(root, f"{patient}_{suffix}_multimodal.csv"),
         os.path.join(root, f"{patient}_{split}_multimodal.csv"),
+        os.path.join(root, "OhioT1DM_data_backup", f"{patient}_{suffix}_multimodal.csv"),
     ]
     path = next((candidate for candidate in candidates if os.path.isfile(candidate)), None)
     if path is None:
