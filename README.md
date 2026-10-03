@@ -1,5 +1,7 @@
 # Personalized Blood Glucose Forecasting
 
+> **Forecast-alignment correction (2026-10-03):** The Phase-2 hybrid and ablation runners were updated on branch `fix/forecast-alignment-validation` to align target timestamps with the requested horizon, exclude training anchors whose targets cross the validation boundary, and reject windows spanning missing/non-5-minute intervals. Existing result tables and saved outputs were generated before these corrections and **must be treated as historical, not corrected results**. Re-run the affected experiments and regenerate reports before drawing scientific conclusions from the corrected pipeline.
+
 ## Reference Paper
 
 **Title:** Personalized Blood Glucose Forecasting From Limited CGM Data Using Incrementally Retrained LSTM (IEEE TBME, 2025). **PMC ID:** PMC11999170.
