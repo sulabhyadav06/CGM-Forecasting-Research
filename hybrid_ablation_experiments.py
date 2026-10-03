@@ -37,27 +37,27 @@ def set_seed(seed=42):
 # ============================================================
 
 class CGMSequenceDataset(Dataset):
-    def __init__(self, data, features, targets, lookback_steps):
-        values = data[features + targets].values.astype(np.float32)
-        nf = len(features)
+    """Windowed sequences with explicit anchor bounds for chronological splits."""
 
-        self.X = np.asarray(
-            [values[i-lookback_steps:i, :nf]
-             for i in range(lookback_steps, len(data))],
-            dtype=np.float32,
-        )
-        self.y = np.asarray(
-            [values[i, nf:]
-             for i in range(lookback_steps, len(data))],
-            dtype=np.float32,
-        )
+    def __init__(self, data, features, targets, lookback_steps, start_anchor=None, end_anchor=None):
+        self.values = data[features + targets].values.astype(np.float32)
+        self.n_features = len(features)
+        self.lookback_steps = lookback_steps
+        self.start_anchor = max(lookback_steps, start_anchor if start_anchor is not None else lookback_steps)
+        self.end_anchor = len(data) if end_anchor is None else min(end_anchor, len(data))
+        self.end_anchor = max(self.start_anchor, self.end_anchor)
+        self.anchors = range(self.start_anchor, self.end_anchor)
 
     def __len__(self):
-        return len(self.X)
+        return len(self.anchors)
 
     def __getitem__(self, idx):
-        return torch.tensor(self.X[idx]), torch.tensor(self.y[idx])
-
+        i = self.anchors[idx]
+        x = self.values[i-self.lookback_steps:i, :self.n_features]
+        y = self.values[i, self.n_features:]
+        if not np.isfinite(x).all() or not np.isfinite(y).all():
+            raise ValueError(f"Non-finite sequence or target at anchor row {i}.")
+        return torch.tensor(x), torch.tensor(y)
 
 # ============================================================
 # Generic ablation model
@@ -362,11 +362,11 @@ def add_targets(train, test, horizons):
         steps = h // 5
 
         train[f"target_{h}"] = (
-            train["glucose"].shift(-steps)
+            train["glucose"].shift(-(steps - 1))
         )
 
         test[f"target_{h}"] = (
-            test["glucose"].shift(-steps)
+            test["glucose"].shift(-(steps - 1))
         )
 
     return train, test
@@ -681,86 +681,47 @@ def main():
         for h in args.horizons
     ]
 
-    train_df = train_df.dropna(
-        subset=targets
-    ).reset_index(drop=True)
-
-    test_df = test_df.dropna(
-        subset=targets
-    ).reset_index(drop=True)
-
-    val_size = max(
-        1,
-        int(
-            len(train_df)
-            * args.val_fraction
-        ),
-    )
-
-    train_part = train_df.iloc[
-        :-val_size
-    ].copy()
-
-    val_part = train_df.iloc[
-        -val_size:
-    ].copy()
-
-    # Train-only imputation.
-    imputer = fit_imputer(
-        train_part,
-        features,
-    )
-
-    train_part = apply_imputer(
-        train_part,
-        imputer,
-    )
-
-    val_part = apply_imputer(
-        val_part,
-        imputer,
-    )
-
-    test_df = apply_imputer(
-        test_df,
-        imputer,
-    )
-
-    # Train-only scaling.
-    scaler = fit_scaler(
-        train_part,
-        features + targets,
-    )
-
-    train_part = apply_scaler(
-        train_part,
-        scaler,
-    )
-
-    val_part = apply_scaler(
-        val_part,
-        scaler,
-    )
-
-    test_scaled = apply_scaler(
-        test_df,
-        scaler,
-    )
-
+    if args.lookback % 5:
+        raise ValueError("Lookback must be a multiple of 5 minutes.")
     lookback_steps = args.lookback // 5
+    if not 0 < args.val_fraction < 1:
+        raise ValueError("--val-fraction must be between 0 and 1.")
+
+    # Chronological split is defined before building windows. With inputs
+    # ending at i-1, horizon h targets row i + h/5 - 1.
+    split_idx = int(len(train_df) * (1.0 - args.val_fraction))
+    max_offset = max(args.horizons) // 5 - 1
+    train_end = split_idx - max_offset
+    val_end = len(train_df) - max_offset
+    if train_end <= lookback_steps or val_end <= split_idx:
+        raise ValueError(
+            "Not enough rows for the requested lookback, horizons, and validation fraction."
+        )
+
+    # Keep pre-split history available to validation windows, while excluding
+    # every training anchor whose longest-horizon label crosses the boundary.
+    test_df = test_df.dropna(subset=targets).reset_index(drop=True)
+    train_fit_rows = train_df.iloc[:split_idx].copy()
+    train_anchor_rows = train_df.iloc[lookback_steps:train_end].copy()
+    imputer = fit_imputer(train_fit_rows, features)
+    train_scaled = apply_imputer(train_df, imputer)
+    test_df = apply_imputer(test_df, imputer)
+    scaler = fit_scaler(train_anchor_rows, features + targets)
+    train_scaled = apply_scaler(train_scaled, scaler)
+    test_scaled = apply_scaler(test_df, scaler)
+
+    sanity_check(train_scaled.iloc[lookback_steps:train_end], features + targets, "train")
+    sanity_check(train_scaled.iloc[split_idx:val_end], features + targets, "validation")
+    sanity_check(test_scaled, features + targets, "test")
 
     train_dataset = CGMSequenceDataset(
-        train_part,
-        features,
-        targets,
-        lookback_steps,
+        train_scaled, features, targets, lookback_steps,
+        start_anchor=lookback_steps, end_anchor=train_end,
     )
 
     val_dataset = CGMSequenceDataset(
-        val_part,
-        features,
-        targets,
-        lookback_steps,
+        train_scaled, features, targets, lookback_steps,
+        start_anchor=split_idx, end_anchor=val_end,
     )
 
     test_dataset = CGMSequenceDataset(
