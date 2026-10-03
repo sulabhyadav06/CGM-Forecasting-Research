@@ -54,3 +54,13 @@ def test_all_architectures_have_five_outputs_and_adaptive_gates_sum_to_one():
             _,g=m(x,return_gates=True)
             assert g.shape==(2,3)
             assert torch.allclose(g.sum(-1),torch.ones(2),atol=1e-6)
+
+
+def test_transformer_scaler_imputes_using_train_only_statistics():
+    from transformer_experiments import fit_standardizer, apply_standardizer
+    train=pd.DataFrame({"x":[1.0,np.nan,3.0]})
+    mean,std=fit_standardizer(train,["x"])
+    assert np.isclose(mean["x"],2.0)
+    transformed=apply_standardizer(pd.DataFrame({"x":[np.nan,4.0]}),["x"],mean,std)
+    assert np.isfinite(transformed["x"]).all()
+    assert np.isclose(transformed.loc[0,"x"],0.0)
