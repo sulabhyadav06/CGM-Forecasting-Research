@@ -113,3 +113,14 @@ The corrected descriptive results do **not** support a blanket claim that one ar
 - These are research metrics, not clinical validation. Patient-level comparisons have small sample sizes, and clinical error-grid implementation details require expert review before publication.
 
 The report describes the run protocol, feature availability, persistence comparison, limitations, and artifact inventory. The result bundle contains patient-level metrics, predictions, histories, audits, validation outputs, and logs in the local evaluation package; large generated artifacts are not all tracked in GitHub yet. OhioT1DM source data remain excluded under the dataset access agreement.
+
+
+## Corrected Phase-2 status (3 October 2026)
+
+- Corrected OhioT1DM bolus parsing: bolus events use `ts_begin`. Regenerated 2020 CSVs supersede earlier runs with zero bolus values.
+- 2018 multimodal inputs: CGM, carbohydrates, insulin, heart rate and steps. 2020 inputs: CGM, carbohydrates, insulin and causal acceleration summaries.
+- The model implementation supports five forecast horizons (15/30/60/90/120 min) and adaptive TCN–GRU–Transformer fusion.
+- Regression tests and a reproducible runbook are now included. Raw OhioT1DM data must not be committed.
+- See [corrected project status](reports/FINAL_PROJECT_STATUS_2026-10-03.md) and [reproducible runbook](reports/REPRODUCIBLE_RUNBOOK_2026-10-03.md).
+
+**Research caution:** preliminary/short-epoch results do not establish superiority, novelty or clinical safety. Use only corrected-data results, report patient-level comparisons with multiplicity correction, and have the Clarke Error Grid implementation independently reviewed before publication.
