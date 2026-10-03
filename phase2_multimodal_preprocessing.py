@@ -404,11 +404,6 @@ def process(path: Path, cohort: str):
         "bolus",
     )
 
-    # These indicate that the event streams were parsed. The actual event
-    # totals are zero when no event occurred in the window.
-    grid["carbs_observed_60min"] = 1
-    grid["bolus_observed_60min"] = 1
-
     grid["basal_rate"] = align_basal(
         grid,
         data["basal"],
