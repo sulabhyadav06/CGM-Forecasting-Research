@@ -356,8 +356,7 @@ def main():
     run_config["device"] = str(device)
     run_config["num_patients"] = len(train_files)
     run_config["metric_scale"] = "original glucose scale (mg/dL)"
-    run_config["glucose_scaler_mean"] = float(mean["glucose"])
-    run_config["glucose_scaler_std"] = float(std["glucose"])
+    run_config["scaler_fit_protocol"] = "per-patient; chronological pre-validation training rows only"
     config_path.write_text(json.dumps(run_config, indent=2))
 
     def is_completed(patient_id, horizon):
@@ -412,14 +411,14 @@ def main():
         mean, std = fit_standardizer(train_df.iloc[:fit_end], feature_columns)
         train_df = apply_standardizer(train_df, feature_columns, mean, std)
         test_df = apply_standardizer(test_df, feature_columns, mean, std)
-        patient_data[patient_id] = (train_df, test_df)
+        patient_data[patient_id] = (train_df, test_df, mean.copy(), std.copy())
 
     for patient_index, train_path in enumerate(train_files, start=1):
         patient_id = train_path.stem
         if patient_id not in patient_data:
             continue
 
-        train_df, test_df = patient_data[patient_id]
+        train_df, test_df, patient_mean, patient_std = patient_data[patient_id]
 
         for horizon in horizons:
             if is_completed(patient_id, horizon):
@@ -514,8 +513,8 @@ def main():
                 model,
                 test_loader,
                 device,
-                glucose_mean=mean["glucose"],
-                glucose_std=std["glucose"],
+                glucose_mean=patient_mean["glucose"],
+                glucose_std=patient_std["glucose"],
             )
             metrics.update({
                 "patient": patient_id,
