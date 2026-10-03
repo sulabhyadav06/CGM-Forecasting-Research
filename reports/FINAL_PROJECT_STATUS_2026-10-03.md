@@ -2,7 +2,7 @@
 
 ## Data-processing correction
 
-OhioT1DM bolus events use the `ts_begin` attribute. The parser was corrected to read this field and the 24 Phase-2 train/test CSVs were regenerated. All results produced from earlier zero-bolus CSVs are superseded and must not be used as final findings.
+OhioT1DM bolus events use the `ts_begin` attribute. The parser was corrected to read this field and the 24 Phase-2 train/test CSVs were regenerated. Redundant event-observation flags that were always 1 were also removed. All results produced from earlier zero-bolus CSVs are superseded and must not be used as final findings.
 
 The OhioT1DM 2020 wearable XML has scalar acceleration events with `ts` and `value` attributes. `ohio2020_acceleration_preprocessing.py` aggregates them causally to the CGM grid over the trailing interval `[t-5 min, t)`, producing mean, standard deviation, minimum, maximum, count, coverage and missingness features. No future acceleration observations are used.
 
@@ -37,12 +37,12 @@ The adaptive model is not the lowest-MAE model at every horizon. The results do 
 
 ## Tests and implementation checks
 
-The local regression suite checks five-horizon timestamp alignment, rejection of sequences crossing gaps, causal acceleration aggregation, parsing bolus timestamps from `ts_begin`, known synthetic lag, model output dimensions and adaptive gate normalization. The suite passed 6 tests.
+The local regression suite checks five-horizon timestamp alignment, rejection of sequences crossing gaps, causal acceleration aggregation, parsing bolus timestamps from `ts_begin`, known synthetic lag, model output dimensions and adaptive gate normalization. The corrected local regression suite passed 9 tests.
 
-## Remaining interpretation limits
+## Expanded corrected evaluation
 
-- The full corrected ten-architecture grid, corrected common-feature ablation, paired statistics, and 15-/120-minute context sweeps must be run on the corrected CSVs before claiming the whole professor-specified experimental matrix is complete.
-- Statistical comparisons should use paired patient-level values, Holm correction, and signed effect sizes; report signed lag descriptively and compare absolute lag magnitude.
+The corrected ten-architecture grid (LSTM, GRU, BiLSTM, TCN, Transformer, TCN-GRU, GRU-Transformer, TCN-Transformer, TCN-GRU-Transformer, adaptive TCN-GRU-Transformer) plus persistence has now completed on all 12 patients at all five horizons: 660 patient × model/baseline × horizon rows. See [the full architecture summary](FULL_ARCHITECTURE_RESULTS_2026-10-03.md). Persistence is better at 15/30 minutes; the adaptive model is not universally best. Corrected feature ablations and paired statistics are being rerun after an inverse-target-scaling bug was found in an exploratory ablation script; those earlier ablation outputs must be discarded. The focused 15-/120-minute Transformer lookback sweeps are also being rerun after fixing patient-specific scaler handling.
+- Statistical comparisons use paired patient-level values, Holm correction, and rank-biserial effect sizes; signed lag is reported descriptively and absolute lag magnitude is compared. Treat the full statistical output as provisional until the corrected ablation and lookback runs finish.
 - Clarke Error Grid implementation and clinical interpretation need expert review before publication.
 - A single seed and one small dataset cohort do not establish methodological novelty, external validity, or clinical safety.
 - OhioT1DM raw data are not included in this repository because of the data-use agreement.
