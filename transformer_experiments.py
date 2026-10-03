@@ -115,8 +115,11 @@ def print_parameter_budget(input_dim: int, pooling: str = "attention"):
 
 
 def fit_standardizer(df: pd.DataFrame, columns: list[str]):
-    mean = df[columns].mean()
-    std = df[columns].std().replace(0, 1.0)
+    """Fit numeric imputation/scaling statistics on training rows only."""
+    numeric = df[columns].apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan)
+    mean = numeric.mean().fillna(0.0)
+    std = numeric.std(ddof=0).replace(0, 1.0).fillna(1.0)
+    std = std.where(std.abs() > 1e-8, 1.0)
     return mean, std
 
 
@@ -127,7 +130,9 @@ def apply_standardizer(
     std: pd.Series,
 ):
     out = df.copy()
-    out[columns] = (out[columns] - mean[columns]) / std[columns]
+    numeric = out[columns].apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan)
+    numeric = numeric.fillna(mean[columns])
+    out[columns] = (numeric - mean[columns]) / std[columns]
     return out
 
 
@@ -330,11 +335,6 @@ def main():
         )
         return
 
-    all_train = pd.concat(
-        [pd.read_csv(p) for p in train_files], ignore_index=True
-    )
-    mean, std = fit_standardizer(all_train, feature_columns)
-
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -407,6 +407,9 @@ def main():
         train_df["timestamp"] = pd.to_datetime(train_df["timestamp"])
         test_df["timestamp"] = pd.to_datetime(test_df["timestamp"])
 
+        # Fit per-patient preprocessing only on the chronological pre-validation rows.
+        fit_end = max(1, int(len(train_df) * (1.0 - args.val_fraction)))
+        mean, std = fit_standardizer(train_df.iloc[:fit_end], feature_columns)
         train_df = apply_standardizer(train_df, feature_columns, mean, std)
         test_df = apply_standardizer(test_df, feature_columns, mean, std)
         patient_data[patient_id] = (train_df, test_df)
