@@ -130,3 +130,7 @@ The report describes the run protocol, feature availability, persistence compari
 - [Corrected data-quality audit](reports/DATA_QUALITY_AUDIT_2026-10-03.md) — timestamp gaps, removed constant flags, missingness, and sleep-data limitation.
 
 - [Corrected ten-architecture results and persistence comparison](reports/FULL_ARCHITECTURE_RESULTS_2026-10-03.md) — five horizons, 12 patients, and limitations.
+
+- [Corrected feature ablation results](reports/FEATURE_ABLATION_RESULTS_2026-10-03.md) — common and cohort-specific modality sets.
+- [Transformer lookback sensitivity](reports/LOOKBACK_SENSITIVITY_2026-10-03.md) — 60/120/180/240-minute windows at 15/120-minute horizons.
+- [Paired statistical analysis](reports/STATISTICAL_ANALYSIS_2026-10-03.md) — Holm-corrected tests and effect-size summary.
