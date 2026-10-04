@@ -30,17 +30,47 @@ def set_seed(seed=42):
         torch.cuda.manual_seed_all(seed)
 
 
-class SequenceDataset(Dataset):
-    def __init__(self, x, y):
-        self.x = torch.from_numpy(x.astype(np.float32))
-        self.y = torch.from_numpy(y.astype(np.float32))
+class CGMSequenceDataset(Dataset):
+    """Windowed sequences with explicit anchors and strict 5-minute continuity."""
+
+    def __init__(self, data, feature_columns, target_columns, lookback_steps, start_anchor=None, end_anchor=None):
+        self.values = data[feature_columns + target_columns].values.astype(np.float32)
+        self.n_features = len(feature_columns)
+        self.lookback_steps = lookback_steps
+        self.timestamps = pd.to_datetime(data["timestamp"]).reset_index(drop=True)
+        start = max(lookback_steps, start_anchor if start_anchor is not None else lookback_steps)
+        end = len(data) if end_anchor is None else min(end_anchor, len(data))
+        self.anchors = []
+        horizon_minutes = [int(c.removeprefix("target_")) for c in target_columns]
+        for i in range(start, end):
+            # Every input sample must be 5 minutes apart.
+            window_times = self.timestamps.iloc[i-lookback_steps:i]
+            if len(window_times) != lookback_steps:
+                continue
+            deltas = window_times.diff().dropna()
+            if not (deltas == pd.Timedelta(minutes=5)).all():
+                continue
+            last_input_time = self.timestamps.iloc[i-1]
+            if any(
+                i + h // 5 - 1 >= len(data)
+                or self.timestamps.iloc[i + h // 5 - 1] != last_input_time + pd.Timedelta(minutes=h)
+                for h in horizon_minutes
+            ):
+                continue
+            if not np.isfinite(self.values[i, self.n_features:]).all():
+                continue
+            self.anchors.append(i)
 
     def __len__(self):
-        return len(self.x)
+        return len(self.anchors)
 
     def __getitem__(self, idx):
-        return self.x[idx], self.y[idx]
-
+        i = self.anchors[idx]
+        x = self.values[i-self.lookback_steps:i, :self.n_features]
+        y = self.values[i, self.n_features:]
+        if not np.isfinite(x).all() or not np.isfinite(y).all():
+            raise ValueError(f"Non-finite sequence or target at anchor row {i}.")
+        return torch.tensor(x), torch.tensor(y)
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -65,23 +95,42 @@ def parse_args():
     return p.parse_args()
 
 
-def normalize_time(df):
-    df = df.copy()
-    df["timestamp"] = (
-        pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
-        .dt.tz_localize(None)
-    )
-    return df.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
+def _read_patient_split(root, patient, split):
+    """Load either split/<patient>.csv or the repository's flat multimodal CSV layout."""
+    suffix = "training" if split == "train" else "testing"
+    cohort = "ohio2018" if str(patient) in {"559", "563", "570", "575", "588", "591"} else "ohio2020"
+    candidates = [
+        os.path.join(root, split, f"{patient}.csv"),
+        os.path.join(root, "phase2", cohort, split, f"{patient}.csv"),
+        os.path.join(root, cohort, split, f"{patient}.csv"),
+        os.path.join(root, f"{patient}_{suffix}_multimodal.csv"),
+        os.path.join(root, f"{patient}_{split}_multimodal.csv"),
+        os.path.join(root, "OhioT1DM_data_backup", f"{patient}_{suffix}_multimodal.csv"),
+    ]
+    path = next((candidate for candidate in candidates if os.path.isfile(candidate)), None)
+    if path is None:
+        expected = "\n".join(f"  - {candidate}" for candidate in candidates)
+        raise FileNotFoundError(
+            f"Could not find {split} CSV for patient {patient}. Checked:\n{expected}"
+        )
+
+    df = pd.read_csv(path)
+    # Accommodate both lowercase canonical headers and TitleCase CSV exports.
+    df.columns = [str(column).strip().lower() for column in df.columns]
+    required = {"timestamp", "glucose"}
+    missing = required.difference(df.columns)
+    if missing:
+        raise ValueError(
+            f"{path} is missing required columns after header normalization: {sorted(missing)}"
+        )
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="raise")
+    return df.sort_values("timestamp").reset_index(drop=True)
 
 
-def load_patient_data(root, cohort, patient):
-    train = pd.read_csv(
-        Path(root) / cohort / "train" / f"{patient}.csv"
-    )
-    test = pd.read_csv(
-        Path(root) / cohort / "test" / f"{patient}.csv"
-    )
-    return normalize_time(train), normalize_time(test)
+def load_patient_data(root, patient):
+    train = _read_patient_split(root, patient, "train")
+    test = _read_patient_split(root, patient, "test")
+    return train, test
 
 
 def get_feature_columns(df):
@@ -95,6 +144,17 @@ def get_feature_columns(df):
     cols = [c for c in df.columns if c not in excluded]
     cols.remove("glucose")
     return ["glucose"] + cols
+
+
+def add_targets(train, test, horizons):
+    train, test = train.copy(), test.copy()
+    for h in horizons:
+        if h % 5:
+            raise ValueError("Horizons must be multiples of 5 minutes.")
+        steps = h // 5
+        train[f"target_{h}"] = train["glucose"].shift(-(steps - 1))
+        test[f"target_{h}"] = test["glucose"].shift(-(steps - 1))
+    return train, test
 
 
 def fit_imputer(df, columns):
@@ -325,48 +385,66 @@ def run_patient(
 
     features = get_feature_columns(train_df)
 
-    print("Features:")
-    print(", ".join(features))
+    print("\nFeatures:")
+    for c in features:
+        print(f"  - {c}")
 
-    train_part, val_part = split_train_validation(
-        train_df,
-        args.val_fraction,
+    train_df, test_df = add_targets(
+        train_df, test_df, args.horizons
     )
 
-    # Train-only imputation.
-    imputer = fit_imputer(train_part, features)
+    targets = [f"target_{h}" for h in args.horizons]
 
-    train_part = apply_imputer(train_part, imputer)
-    val_part = apply_imputer(val_part, imputer)
-    test_part = apply_imputer(test_df, imputer)
+    if args.lookback % 5:
+        raise ValueError("Lookback must be a multiple of 5 minutes.")
+    lookback_steps = args.lookback // 5
+    if not 0 < args.val_fraction < 1:
+        raise ValueError("--val-fraction must be between 0 and 1.")
 
-    # Train-only scaling.
-    scaler = fit_scaler(train_part, features)
-
-    train_scaled = apply_scaler(train_part, scaler)
-    val_scaled = apply_scaler(val_part, scaler)
-    test_scaled = apply_scaler(test_part, scaler)
-
-    # Gap-safe sequences.
-    X_train, y_train, train_meta = make_sequences(
-        train_scaled, features, args.lookback
-    )
-    X_val, y_val, val_meta = make_sequences(
-        val_scaled, features, args.lookback
-    )
-    X_test, y_test, test_meta = make_sequences(
-        test_scaled, features, args.lookback
-    )
-
-    if min(len(X_train), len(X_val), len(X_test)) == 0:
-        raise RuntimeError(
-            f"{cohort}/{patient}: one split has zero valid sequences."
+    # Chronological split is defined before building windows. With inputs
+    # ending at i-1, horizon h targets row i + h/5 - 1.
+    split_idx = int(len(train_df) * (1.0 - args.val_fraction))
+    max_offset = max(args.horizons) // 5 - 1
+    train_end = split_idx - max_offset
+    val_end = len(train_df) - max_offset
+    if train_end <= lookback_steps or val_end <= split_idx:
+        raise ValueError(
+            "Not enough rows for the requested lookback, horizons, and validation fraction."
         )
 
-    print(
-        f"Sequences: train={len(X_train)}, "
-        f"val={len(X_val)}, test={len(X_test)}"
+    # Keep pre-split history available to validation windows, while excluding
+    # every training anchor whose longest-horizon label crosses the boundary.
+    test_df = test_df.dropna(subset=targets).reset_index(drop=True)
+    train_fit_rows = train_df.iloc[:split_idx].copy()
+    train_anchor_rows = train_df.iloc[lookback_steps:train_end].copy()
+    imputer = fit_imputer(train_fit_rows, features)
+    train_scaled = apply_imputer(train_df, imputer)
+    test_df = apply_imputer(test_df, imputer)
+    scaler = fit_scaler(train_anchor_rows, features + targets)
+    train_scaled = apply_scaler(train_scaled, scaler)
+    test_scaled = apply_scaler(test_df, scaler)
+
+    sanity_check(train_scaled.iloc[lookback_steps:train_end], features + targets, "train")
+    sanity_check(train_scaled.iloc[split_idx:val_end], features + targets, "validation")
+    sanity_check(test_scaled, features + targets, "test")
+
+    train_dataset = CGMSequenceDataset(
+        train_scaled, features, targets, lookback_steps,
+        start_anchor=lookback_steps, end_anchor=train_end,
     )
+
+    val_dataset = CGMSequenceDataset(
+        train_scaled, features, targets, lookback_steps,
+        start_anchor=split_idx, end_anchor=val_end,
+    )
+
+    test_dataset = CGMSequenceDataset(
+        test_scaled, features, targets, lookback_steps
+    )
+
+    print(f"\nTrain sequences: {len(train_dataset)}")
+    print(f"Validation sequences: {len(val_dataset)}")
+    print(f"Test sequences: {len(test_dataset)}")
 
     train_loader = DataLoader(
         SequenceDataset(X_train, y_train),
