@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import random
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -12,6 +13,13 @@ from torch import nn
 from torch.utils.data import Dataset, DataLoader
 
 from hybrid_models import HybridTCNGRUTransformer, count_parameters
+from phase2_sequence_utils import build_sequences
+
+
+PATIENTS_2018 = [559, 563, 570, 575, 588, 591]
+PATIENTS_2020 = [540, 544, 552, 567, 584, 596]
+HORIZONS = [15, 30, 60, 90, 120]
+STEP_MIN = 5
 
 
 def set_seed(seed=42):
@@ -66,11 +74,8 @@ class CGMSequenceDataset(Dataset):
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--data-root", required=True)
-    p.add_argument("--patient", required=True)
+    p.add_argument("--data-root", default="data/phase2")
     p.add_argument("--lookback", type=int, default=120)
-    p.add_argument("--horizons", type=int, nargs="+",
-                   default=[15, 30, 60, 90, 120])
     p.add_argument("--d-model", type=int, default=56)
     p.add_argument("--gru-hidden", type=int, default=56)
     p.add_argument("--gru-layers", type=int, default=2)
@@ -86,7 +91,7 @@ def parse_args():
     p.add_argument("--weight-decay", type=float, default=1e-4)
     p.add_argument("--grad-clip", type=float, default=1.0)
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--output-dir", default="output/phase2_hybrid")
+    p.add_argument("--output-dir", default="output/phase2_hybrid_all12")
     return p.parse_args()
 
 
@@ -153,63 +158,93 @@ def add_targets(train, test, horizons):
 
 
 def fit_imputer(df, columns):
-    out = {}
+    medians = {}
     for c in columns:
-        median = df[c].median()
+        values = pd.to_numeric(df[c], errors="coerce")
+        median = values.median()
         if not np.isfinite(median):
-            raise ValueError(f"Invalid median for {c}")
-        out[c] = float(median)
-    return out
+            raise ValueError(f"Invalid training median for {c}")
+        medians[c] = float(median)
+    return medians
 
 
 def apply_imputer(df, medians):
-    df = df.copy()
+    out = df.copy()
     for c, median in medians.items():
-        df[c] = (
-            df[c]
+        out[c] = (
+            pd.to_numeric(out[c], errors="coerce")
             .replace([np.inf, -np.inf], np.nan)
             .fillna(median)
+            .astype(np.float64)
         )
-    return df
-
-
-def fit_scaler(df, columns):
-    out = {}
-    for c in columns:
-        mean = df[c].mean()
-        std = df[c].std()
-        if not np.isfinite(mean):
-            raise ValueError(f"Invalid mean for {c}")
-        if not np.isfinite(std) or std < 1e-8:
-            std = 1.0
-        out[c] = {"mean": float(mean), "std": float(std)}
     return out
 
 
+def fit_scaler(df, columns):
+    scaler = {}
+    for c in columns:
+        values = df[c].to_numpy(dtype=np.float64)
+        mean = float(np.mean(values))
+        std = float(np.std(values, ddof=1))
+        if not np.isfinite(mean):
+            raise ValueError(f"Invalid training mean for {c}")
+        if not np.isfinite(std) or std < 1e-8:
+            std = 1.0
+        scaler[c] = {"mean": mean, "std": std}
+    return scaler
+
+
 def apply_scaler(df, scaler):
-    df = df.copy()
+    out = df.copy()
     for c, s in scaler.items():
-        df[c] = (df[c] - s["mean"]) / s["std"]
-    return df
+        out[c] = (
+            (out[c].to_numpy(dtype=np.float64) - s["mean"])
+            / s["std"]
+        )
+    return out
 
 
-def sanity_check(df, columns, name):
-    a = df[columns].to_numpy(dtype=np.float32)
-    if not np.isfinite(a).all():
-        bad = [c for c in columns
-               if not np.isfinite(df[c].to_numpy(dtype=np.float32)).all()]
-        raise ValueError(f"{name} contains NaN/Inf: {bad}")
-    print(f"{name}: all features/targets are finite")
+def split_train_validation(df, fraction):
+    n_val = max(int(len(df) * fraction), 1)
+    if n_val >= len(df):
+        raise ValueError("Validation split leaves no training rows.")
+    return df.iloc[:-n_val].copy(), df.iloc[-n_val:].copy()
 
 
-def train_model(model, train_loader, val_loader, device,
-                epochs, lr, weight_decay, patience, grad_clip):
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=lr, weight_decay=weight_decay
+def make_sequences(df, features, lookback_min):
+    X, y, metadata = build_sequences(
+        df=df,
+        feature_cols=features,
+        target_col="glucose",
+        lookback_steps=lookback_min // STEP_MIN,
+        horizon_steps=[h // STEP_MIN for h in HORIZONS],
+        step_min=STEP_MIN,
+        timestamp_col="timestamp",
     )
-    criterion = nn.MSELoss()
+    return X, y, metadata
+
+
+def train_model(
+    model,
+    train_loader,
+    val_loader,
+    device,
+    epochs,
+    lr,
+    weight_decay,
+    patience,
+    grad_clip,
+):
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=lr,
+        weight_decay=weight_decay,
+    )
+    criterion = nn.SmoothL1Loss()
+
     best_val = float("inf")
     best_state = None
+    best_epoch = 0
     wait = 0
     history = []
 
@@ -219,24 +254,22 @@ def train_model(model, train_loader, val_loader, device,
 
         for x, y in train_loader:
             x, y = x.to(device), y.to(device)
-
-            if not torch.isfinite(x).all():
-                raise ValueError("Non-finite input batch.")
-            if not torch.isfinite(y).all():
-                raise ValueError("Non-finite target batch.")
-
             optimizer.zero_grad()
+
             pred = model(x)
 
             if not torch.isfinite(pred).all():
                 raise ValueError("Model produced NaN/Inf predictions.")
 
             loss = criterion(pred, y)
+
             if not torch.isfinite(loss):
                 raise ValueError("Training loss became NaN/Inf.")
 
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(), grad_clip
+            )
             optimizer.step()
             train_losses.append(loss.item())
 
@@ -254,6 +287,7 @@ def train_model(model, train_loader, val_loader, device,
 
         train_loss = float(np.mean(train_losses))
         val_loss = float(np.mean(val_losses))
+
         history.append({
             "epoch": epoch,
             "train_loss": train_loss,
@@ -261,12 +295,13 @@ def train_model(model, train_loader, val_loader, device,
         })
 
         print(
-            f"Epoch {epoch:02d} | "
+            f"    Epoch {epoch:02d} | "
             f"Train {train_loss:.5f} | Val {val_loss:.5f}"
         )
 
         if val_loss < best_val:
             best_val = val_loss
+            best_epoch = epoch
             best_state = {
                 k: v.detach().cpu().clone()
                 for k, v in model.state_dict().items()
@@ -275,72 +310,77 @@ def train_model(model, train_loader, val_loader, device,
         else:
             wait += 1
             if wait >= patience:
-                print("Early stopping.")
                 break
 
-    if best_state is not None:
-        model.load_state_dict(best_state)
+    if best_state is None:
+        raise RuntimeError("No best model state was saved.")
 
-    return model, history
+    model.load_state_dict(best_state)
+    return model, history, best_epoch, best_val
 
 
-def evaluate_model(model, loader, device, horizons, scaler):
+def evaluate(model, loader, device, scaler):
     model.eval()
-    preds, targets, gates = [], [], []
+    preds = []
+    targets = []
+    gates = []
 
     with torch.no_grad():
         for x, y in loader:
-            x, y = x.to(device), y.to(device)
-            pred, gate = model(x, return_gates=True)
+            x = x.to(device)
+            pred, gate = model(
+                x,
+                return_gates=True,
+            )
             preds.append(pred.cpu().numpy())
-            targets.append(y.cpu().numpy())
+            targets.append(y.numpy())
             gates.append(gate.cpu().numpy())
 
     preds = np.concatenate(preds)
     targets = np.concatenate(targets)
     gates = np.concatenate(gates)
 
+    glucose_mean = scaler["glucose"]["mean"]
+    glucose_std = scaler["glucose"]["std"]
+
+    preds = preds * glucose_std + glucose_mean
+    targets = targets * glucose_std + glucose_mean
+
     rows = []
-    for i, h in enumerate(horizons):
-        s = scaler[f"target_{h}"]
-        pred = preds[:, i] * s["std"] + s["mean"]
-        true = targets[:, i] * s["std"] + s["mean"]
-        err = pred - true
+    for i, horizon in enumerate(HORIZONS):
+        error = preds[:, i] - targets[:, i]
         rows.append({
-            "horizon": h,
-            "mae_mgdl": float(np.mean(np.abs(err))),
-            "rmse_mgdl": float(np.sqrt(np.mean(err ** 2))),
-            "n_samples": len(true),
+            "horizon_min": horizon,
+            "mae_mgdl": float(np.mean(np.abs(error))),
+            "rmse_mgdl": float(np.sqrt(np.mean(error ** 2))),
+            "n_samples": int(len(error)),
         })
 
     gate_summary = {
         "tcn_mean": float(gates[:, 0].mean()),
         "gru_mean": float(gates[:, 1].mean()),
         "transformer_mean": float(gates[:, 2].mean()),
-        "tcn_std": float(gates[:, 0].std()),
-        "gru_std": float(gates[:, 1].std()),
-        "transformer_std": float(gates[:, 2].std()),
+        "tcn_sd": float(gates[:, 0].std()),
+        "gru_sd": float(gates[:, 1].std()),
+        "transformer_sd": float(gates[:, 2].std()),
     }
 
-    return pd.DataFrame(rows), gate_summary, gates
+    return pd.DataFrame(rows), gate_summary
 
 
-def main():
-    args = parse_args()
-    set_seed(args.seed)
-    os.makedirs(args.output_dir, exist_ok=True)
-
-    device = torch.device(
-        "cuda" if torch.cuda.is_available() else "cpu"
-    )
-
-    print(f"Device: {device}")
-    print(f"Patient: {args.patient}")
-    print(f"Lookback: {args.lookback} min")
-    print(f"Horizons: {args.horizons}")
+def run_patient(
+    args,
+    cohort,
+    patient,
+    device,
+    output_dir,
+):
+    print("\n" + "=" * 70)
+    print(f"COHORT={cohort} | PATIENT={patient}")
+    print("=" * 70)
 
     train_df, test_df = load_patient_data(
-        args.data_root, args.patient
+        args.data_root, cohort, patient
     )
 
     features = get_feature_columns(train_df)
@@ -407,13 +447,19 @@ def main():
     print(f"Test sequences: {len(test_dataset)}")
 
     train_loader = DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=True
+        SequenceDataset(X_train, y_train),
+        batch_size=args.batch_size,
+        shuffle=True,
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=args.batch_size, shuffle=False
+        SequenceDataset(X_val, y_val),
+        batch_size=args.batch_size,
+        shuffle=False,
     )
     test_loader = DataLoader(
-        test_dataset, batch_size=args.batch_size, shuffle=False
+        SequenceDataset(X_test, y_test),
+        batch_size=args.batch_size,
+        shuffle=False,
     )
 
     model = HybridTCNGRUTransformer(
@@ -424,93 +470,181 @@ def main():
         tcn_levels=args.tcn_levels,
         transformer_heads=args.heads,
         transformer_layers=args.transformer_layers,
-        horizons=args.horizons,
+        horizons=HORIZONS,
         dropout=args.dropout,
-        max_len=lookback_steps,
+        max_len=args.lookback // STEP_MIN,
     ).to(device)
 
     params = count_parameters(model)
-    print(f"\nTrainable parameters: {params:,}")
+    print(f"Trainable parameters: {params:,}")
 
-    model, history = train_model(
-        model, train_loader, val_loader, device,
-        args.epochs, args.lr, args.weight_decay,
-        args.patience, args.grad_clip
+    model, history, best_epoch, best_val = train_model(
+        model,
+        train_loader,
+        val_loader,
+        device,
+        args.epochs,
+        args.lr,
+        args.weight_decay,
+        args.patience,
+        args.grad_clip,
     )
 
-    results, gate_summary, gate_values = evaluate_model(
-        model, test_loader, device, args.horizons, scaler
+    results, gates = evaluate(
+        model,
+        test_loader,
+        device,
+        scaler,
     )
 
-    results.insert(0, "patient", args.patient)
-    results.insert(1, "lookback_min", args.lookback)
+    results.insert(0, "patient", patient)
+    results.insert(0, "cohort", cohort)
+    results["lookback_min"] = args.lookback
+    results["parameters"] = params
+    results["best_epoch"] = best_epoch
+    results["best_val_loss"] = best_val
 
-    print("\nTest results:")
-    print(results.to_string(index=False))
+    patient_dir = output_dir / cohort / str(patient)
+    patient_dir.mkdir(parents=True, exist_ok=True)
 
-    print("\nAverage adaptive fusion weights:")
-    print(f"TCN:         {gate_summary['tcn_mean']:.4f}")
-    print(f"GRU:         {gate_summary['gru_mean']:.4f}")
-    print(f"Transformer: {gate_summary['transformer_mean']:.4f}")
-
-    prefix = os.path.join(
-        args.output_dir,
-        f"patient_{args.patient}"
+    results.to_csv(
+        patient_dir / "test_results.csv",
+        index=False,
     )
-
-    results.to_csv(f"{prefix}_results.csv", index=False)
-
-    pd.DataFrame(
-        gate_values,
-        columns=[
-            "tcn_gate",
-            "gru_gate",
-            "transformer_gate",
-        ],
-    ).to_csv(f"{prefix}_gates.csv", index=False)
-
     pd.DataFrame(history).to_csv(
-        f"{prefix}_training.csv", index=False
+        patient_dir / "training_history.csv",
+        index=False,
     )
+
+    with open(patient_dir / "config.json", "w") as f:
+        json.dump(
+            {
+                "cohort": cohort,
+                "patient": patient,
+                "features": features,
+                "lookback_min": args.lookback,
+                "horizons": HORIZONS,
+                "parameters": params,
+                "best_epoch": best_epoch,
+                "best_val_loss": best_val,
+                "gate_summary": gates,
+                "imputer_medians": imputer,
+                "scaler": scaler,
+                "n_sequences": {
+                    "train": len(X_train),
+                    "validation": len(X_val),
+                    "test": len(X_test),
+                },
+            },
+            f,
+            indent=2,
+        )
 
     torch.save(
         model.state_dict(),
-        f"{prefix}_model.pt",
+        patient_dir / "best_model.pt",
     )
 
-    config = {
-        "patient": args.patient,
-        "lookback_min": args.lookback,
-        "lookback_steps": lookback_steps,
-        "horizons": args.horizons,
-        "features": features,
-        "parameters": params,
-        "d_model": args.d_model,
-        "gru_hidden": args.gru_hidden,
-        "gru_layers": args.gru_layers,
-        "tcn_levels": args.tcn_levels,
-        "transformer_heads": args.heads,
-        "transformer_layers": args.transformer_layers,
-        "dropout": args.dropout,
-        "batch_size": args.batch_size,
-        "epochs": args.epochs,
-        "patience": args.patience,
-        "learning_rate": args.lr,
-        "weight_decay": args.weight_decay,
-        "imputer_medians": imputer,
-        "scaler": scaler,
-        "gate_summary": gate_summary,
-    }
+    return results, gates
 
-    with open(f"{prefix}_config.json", "w") as f:
-        json.dump(config, f, indent=2)
 
-    print("\nSaved:")
-    print(f"{prefix}_results.csv")
-    print(f"{prefix}_gates.csv")
-    print(f"{prefix}_training.csv")
-    print(f"{prefix}_model.pt")
-    print(f"{prefix}_config.json")
+def main():
+    args = parse_args()
+
+    if args.lookback % STEP_MIN:
+        raise ValueError("Lookback must be divisible by 5 minutes.")
+
+    set_seed(args.seed)
+
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "cpu"
+    )
+
+    print(f"Device: {device}")
+    print(f"Lookback: {args.lookback} min")
+    print(f"Horizons: {HORIZONS}")
+    print("Protocol: gap-safe + train-only imputation/scaling")
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    all_results = []
+    all_gates = []
+
+    for cohort, patients in [
+        ("ohio2018", PATIENTS_2018),
+        ("ohio2020", PATIENTS_2020),
+    ]:
+        for patient in patients:
+            results, gates = run_patient(
+                args,
+                cohort,
+                patient,
+                device,
+                output_dir,
+            )
+            all_results.append(results)
+
+            all_gates.append({
+                "cohort": cohort,
+                "patient": patient,
+                **gates,
+            })
+
+    results = pd.concat(
+        all_results,
+        ignore_index=True,
+    )
+
+    results.to_csv(
+        output_dir / "all_12_test_results.csv",
+        index=False,
+    )
+
+    summary = (
+        results
+        .groupby(
+            ["cohort", "horizon_min"],
+            as_index=False,
+        )
+        .agg(
+            mae_mean=("mae_mgdl", "mean"),
+            mae_sd=("mae_mgdl", "std"),
+            rmse_mean=("rmse_mgdl", "mean"),
+            rmse_sd=("rmse_mgdl", "std"),
+            n_patients=("patient", "nunique"),
+        )
+    )
+
+    overall = (
+        results
+        .groupby("horizon_min", as_index=False)
+        .agg(
+            mae_mean=("mae_mgdl", "mean"),
+            mae_sd=("mae_mgdl", "std"),
+            rmse_mean=("rmse_mgdl", "mean"),
+            rmse_sd=("rmse_mgdl", "std"),
+            n_patients=("patient", "nunique"),
+        )
+    )
+
+    summary.to_csv(
+        output_dir / "cohort_summary.csv",
+        index=False,
+    )
+    overall.to_csv(
+        output_dir / "all12_summary.csv",
+        index=False,
+    )
+    pd.DataFrame(all_gates).to_csv(
+        output_dir / "gate_summary.csv",
+        index=False,
+    )
+
+    print("\n" + "=" * 70)
+    print("FINAL ALL-12 HYBRID RESULTS")
+    print("=" * 70)
+    print(overall.to_string(index=False))
 
 
 if __name__ == "__main__":

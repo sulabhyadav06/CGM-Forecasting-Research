@@ -17,7 +17,12 @@ from typing import Dict, List
 def mard(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e-6) -> float:
     """Mean Absolute Relative Difference, as a percentage."""
     y_true, y_pred = np.asarray(y_true, dtype=float), np.asarray(y_pred, dtype=float)
-    return float(np.mean(np.abs(y_true - y_pred) / np.maximum(y_true, eps)) * 100.0)
+    if y_true.shape != y_pred.shape:
+        raise ValueError("y_true and y_pred must have the same shape and length.")
+    if y_true.size == 0:
+        return 0.0
+    denom = np.maximum(np.abs(y_true), eps)
+    return float(np.mean(np.abs(y_true - y_pred) / denom) * 100.0)
 
 
 def time_lag_minutes(y_true: np.ndarray, y_pred: np.ndarray, sample_interval_min: int = 5,
@@ -27,8 +32,17 @@ def time_lag_minutes(y_true: np.ndarray, y_pred: np.ndarray, sample_interval_min
     trails the true trace, which is the typical/expected direction for CGM
     forecasting models and a known clinical concern to quantify.
     """
-    y_true = np.asarray(y_true, dtype=float) - np.mean(y_true)
-    y_pred = np.asarray(y_pred, dtype=float) - np.mean(y_pred)
+    y_true = np.asarray(y_true, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+    if y_true.shape != y_pred.shape:
+        raise ValueError("y_true and y_pred must have the same shape and length.")
+    if y_true.size == 0:
+        return 0.0
+    if max_lag_samples < 0:
+        raise ValueError("max_lag_samples must be non-negative.")
+
+    y_true = y_true - np.mean(y_true)
+    y_pred = y_pred - np.mean(y_pred)
 
     best_lag, best_corr = 0, -np.inf
     for lag in range(0, max_lag_samples + 1):
@@ -61,6 +75,10 @@ def clarke_error_grid_zone(ref: float, pred: float) -> str:
 def clarke_error_grid_distribution(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
     """Percentage of points in each CEGA zone (A-E), summing to 100."""
     y_true, y_pred = np.asarray(y_true, dtype=float), np.asarray(y_pred, dtype=float)
+    if y_true.shape != y_pred.shape:
+        raise ValueError("y_true and y_pred must have the same shape and length.")
+    if y_true.size == 0:
+        return {z: 0.0 for z in ["A", "B", "C", "D", "E"]}
     zones = [clarke_error_grid_zone(r, p) for r, p in zip(y_true, y_pred)]
     n = len(zones)
     return {z: (zones.count(z) / n * 100.0 if n else 0.0) for z in ["A", "B", "C", "D", "E"]}
