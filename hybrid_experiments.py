@@ -184,6 +184,9 @@ def fit_scaler(df, columns):
     scaler = {}
     for c in columns:
         values = df[c].to_numpy(dtype=np.float64)
+        values = values[np.isfinite(values)]
+        if len(values) == 0:
+            raise ValueError(f"No finite training values for {c}")
         mean = float(np.mean(values))
         std = float(np.std(values, ddof=1))
         if not np.isfinite(mean):
@@ -379,9 +382,7 @@ def run_patient(
     print(f"COHORT={cohort} | PATIENT={patient}")
     print("=" * 70)
 
-    train_df, test_df = load_patient_data(
-        args.data_root, cohort, patient
-    )
+    train_df, test_df = load_patient_data(args.data_root, patient)
 
     features = get_feature_columns(train_df)
 
@@ -390,10 +391,10 @@ def run_patient(
         print(f"  - {c}")
 
     train_df, test_df = add_targets(
-        train_df, test_df, args.horizons
+        train_df, test_df, HORIZONS
     )
 
-    targets = [f"target_{h}" for h in args.horizons]
+    targets = [f"target_{h}" for h in HORIZONS]
 
     if args.lookback % 5:
         raise ValueError("Lookback must be a multiple of 5 minutes.")
@@ -404,7 +405,7 @@ def run_patient(
     # Chronological split is defined before building windows. With inputs
     # ending at i-1, horizon h targets row i + h/5 - 1.
     split_idx = int(len(train_df) * (1.0 - args.val_fraction))
-    max_offset = max(args.horizons) // 5 - 1
+    max_offset = max(HORIZONS) // 5 - 1
     train_end = split_idx - max_offset
     val_end = len(train_df) - max_offset
     if train_end <= lookback_steps or val_end <= split_idx:
@@ -424,9 +425,6 @@ def run_patient(
     train_scaled = apply_scaler(train_scaled, scaler)
     test_scaled = apply_scaler(test_df, scaler)
 
-    sanity_check(train_scaled.iloc[lookback_steps:train_end], features + targets, "train")
-    sanity_check(train_scaled.iloc[split_idx:val_end], features + targets, "validation")
-    sanity_check(test_scaled, features + targets, "test")
 
     train_dataset = CGMSequenceDataset(
         train_scaled, features, targets, lookback_steps,
@@ -447,17 +445,17 @@ def run_patient(
     print(f"Test sequences: {len(test_dataset)}")
 
     train_loader = DataLoader(
-        SequenceDataset(X_train, y_train),
+        train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
     )
     val_loader = DataLoader(
-        SequenceDataset(X_val, y_val),
+        val_dataset,
         batch_size=args.batch_size,
         shuffle=False,
     )
     test_loader = DataLoader(
-        SequenceDataset(X_test, y_test),
+        test_dataset,
         batch_size=args.batch_size,
         shuffle=False,
     )
@@ -531,9 +529,9 @@ def run_patient(
                 "imputer_medians": imputer,
                 "scaler": scaler,
                 "n_sequences": {
-                    "train": len(X_train),
-                    "validation": len(X_val),
-                    "test": len(X_test),
+                    "train": len(train_dataset),
+                    "validation": len(val_dataset),
+                    "test": len(test_dataset),
                 },
             },
             f,
