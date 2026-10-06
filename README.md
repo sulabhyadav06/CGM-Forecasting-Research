@@ -1,123 +1,313 @@
-# CGM Forecasting Research
+# Personalized Multimodal Blood Glucose Forecasting
 
-> **Forecast-alignment correction (2026-10-03):** The Phase-2 hybrid and ablation runners were updated on branch `fix/forecast-alignment-validation` to align target timestamps with the requested horizon, exclude training anchors whose targets cross the validation boundary, and reject windows spanning missing/non-5-minute intervals. Existing result tables and saved outputs were generated before these corrections and **must be treated as historical, not corrected results**. Re-run the affected experiments and regenerate reports before drawing scientific conclusions from the corrected pipeline.
+**Research stage:** exploratory research prototype with corrected, leakage-safe Phase-2 experiments. This repository is not clinically validated and does not claim a universally superior model.
 
-## Reference Paper
+## Overview
 
-This project is now a completed research implementation and experimental package for personalized multimodal multi-horizon blood glucose forecasting.
+This project investigates personalized blood-glucose forecasting from continuous glucose monitoring (CGM) and available physiological/contextual signals.
 
-The final implementation supports a hybrid deep-learning architecture and a systematic benchmark against recurrent, convolutional, and transformer-based baselines. The codebase, preprocessing pipeline, evaluation metrics, experimental outputs, and results summaries are all in place and the repository has been committed to git.
+The study covers:
 
----
+- OhioT1DM 2018 and 2020 cohorts
+- 12 patients
+- multimodal feature construction
+- 15, 30, 60, 90 and 120-minute forecasting
+- LSTM, GRU, BiLSTM, TCN and Transformer baselines
+- pairwise and three-way hybrid architectures
+- adaptive TCN-GRU-Transformer fusion
+- feature ablation
+- capacity-controlled architecture comparison
+- persistence baseline comparison
+- patient-wise clinical/error metrics
+- statistical analysis
+- Shanghai T1DM exploratory evaluation
+- reproducibility and protocol-integrity checks
 
-## Final proposed model
+## Main research notebook
 
-The final model implemented in the repository is a multimodal hybrid TCN–GRU–Transformer architecture with adaptive fusion and a multi-horizon prediction head.
+The primary research notebook is:
 
-Core design:
-- TCN branch for local and short-range temporal dynamics
-- GRU branch for sequential temporal dependence
-- Transformer branch for longer-range cross-timestep interactions
-- Adaptive gated fusion to weight the three representations
-- Multi-horizon output head producing forecasts at 15, 30, 60, 90, and 120 minutes
+`CGM_Forecasting_Experiments.ipynb`
 
-The model is defined in [hybrid_models.py](hybrid_models.py), with the implementation class `HybridTCNGRUTransformer`.
+It documents the complete experimental pipeline, saved results, architecture investigation, ablations, final 12-patient hybrid experiment, Shanghai protocol, limitations and reproducibility checks.
 
----
+## Research question
 
-## What was verified
+Can recent CGM history and available physiological/context signals improve personalized glucose forecasts at 15, 30, 60, 90 and 120 minutes compared with simpler neural models and a last-observation persistence baseline?
 
-The project includes a full set of validated experimental outputs in the `output/` directory. The most relevant files are:
+A second methodological question is whether complementary temporal operators—TCN, GRU and Transformer—have distinct useful roles in multi-horizon forecasting, and whether their combination should be adaptively fused rather than simply concatenated.
 
-- [output/phase2_gap_safe_architecture/architecture_mean_sd.csv](output/phase2_gap_safe_architecture/architecture_mean_sd.csv)
-- [output/phase2_hybrid_all12_run2/all12_summary.csv](output/phase2_hybrid_all12_run2/all12_summary.csv)
-- [output/phase2_hybrid_ablations/patient_559_all_ablations.csv](output/phase2_hybrid_ablations/patient_559_all_ablations.csv)
+## Dataset and permitted use
 
-These outputs were validated directly from the generated CSVs. The final evidence shows:
+The project uses OhioT1DM 2018 and 2020 releases under the applicable Data Use Agreement.
 
-- Short horizons favor TCN
-- Longer horizons become competitive for GRU-Transformer patterns
-- No single architecture dominates every horizon uniformly
-- The hybrid model remains a viable and well-structured baseline, but not a universal winner in the current dataset
+**Raw XML and patient data are intentionally not included in this repository.** Keep authorized source files locally and outside version control.
 
----
+### OhioT1DM 2018
 
-## Evidence-backed main findings
+Patients: `559, 563, 570, 575, 588, 591`
 
-From the generated architecture comparison:
+Available channels include CGM, meal/carbohydrate events, insulin, heart rate and steps, subject to per-file availability.
 
-- 15 min: TCN best RMSE = 20.258
-- 30 min: TCN best RMSE = 27.295
-- 60 min: TCN best RMSE = 38.864
-- 90 min: GRU-Transformer best RMSE = 46.852
-- 120 min: GRU-Transformer best RMSE = 51.064
+### OhioT1DM 2020
 
-From the hybrid all-12 summary:
+Patients: `540, 544, 552, 567, 584, 596`
 
-- 15 min: RMSE = 23.16 ± 10.54
-- 30 min: RMSE = 29.23 ± 9.57
-- 60 min: RMSE = 40.20 ± 8.99
-- 90 min: RMSE = 48.18 ± 8.83
-- 120 min: RMSE = 53.06 ± 7.89
+Available channels include CGM, meal/carbohydrate events, insulin and acceleration. Feature availability differs from the 2018 cohort.
 
-This supports the final conclusion that architecture performance is horizon-dependent rather than globally consistent.
+### Shanghai T1DM
 
----
+Shanghai experiments are maintained separately because their preprocessing and evaluation protocol is not identical to the corrected OhioT1DM protocol.
 
-## Final research interpretation
+## Corrected Phase-2 protocol
 
-The strongest defensible scientific statement is:
+- **Patients:** all 12 OhioT1DM participants
+- **Horizons:** 15, 30, 60, 90 and 120 minutes
+- **Baseline:** last-observation persistence
+- **Architectures:** LSTM, GRU, BiLSTM, TCN, Transformer, TCN-GRU, GRU-Transformer, TCN-Transformer, TCN-GRU-Transformer and adaptive TCN-GRU-Transformer
+- **Evaluation:** patient-level MAE, RMSE, MARD, signed time lag and Clarke Error Grid zone distribution
+- **Splitting:** chronological
+- **Preprocessing:** train-only imputation and scaling
+- **Target handling:** target glucose is not imputed
+- **Sequence construction:** exact contiguous 5-minute windows
+- **Leakage protection:** training targets cannot cross split boundaries
+- **Sensor aggregation:** causal aggregation only
+- **Gap handling:** windows crossing timestamp gaps are rejected
 
-> A multimodal gap-safe forecasting framework for personalized blood glucose prediction was implemented and evaluated across multiple architectures and horizons. The hybrid TCN–GRU–Transformer design is the final proposed model, but the empirical evidence supports horizon-dependent performance rather than universal superiority of any single architecture.
+## Architecture investigation
 
-This is a stronger and more defensible conclusion than claiming the hybrid model is uniformly best across all conditions.
+The hybrid architecture was not selected simply by combining three popular networks.
 
----
+| Component | Intended role |
+|---|---|
+| **GRU** | Sequential state evolution and recurrent temporal dynamics |
+| **TCN** | Local and multi-scale temporal patterns through dilated convolutions |
+| **Transformer** | Longer-range temporal dependencies and attention-based context |
 
-## Repository structure
+The multimodal feature vector first passes through a shared embedding. The three branches then act as different temporal operators.
 
-Key project files:
-- [hybrid_models.py](hybrid_models.py) — final hybrid architecture
-- [hybrid_experiments.py](hybrid_experiments.py) — training and evaluation pipeline
-- [phase2_gap_safe_architecture_ablation.py](phase2_gap_safe_architecture_ablation.py) — architecture comparison workflow
-- [phase2_feature_ablation.py](phase2_feature_ablation.py) — feature-level ablation experiments
-- [clinical_metrics.py](clinical_metrics.py) — MAE, RMSE, MARD, time lag, CEGA
-- [test_time_lag_metric.py](test_time_lag_metric.py) — metric validation tests
-- [mini_paper.md](mini_paper.md) — paper-ready summary draft
+Their representations are **adaptively fused with learned gates**, rather than simply concatenated.
 
+The prediction module uses **horizon-specific heads** for the five forecast horizons.
 
+### Important finding
 
-## Corrected full Phase-2 evaluation (2026-10-03)
+The experiments do **not** establish that the three-way hybrid is universally optimal.
 
-**Use [the corrected full evaluation report](reports/phase2_full_evaluation_2026-10-03.md) for the latest run.** The older result tables elsewhere in this README describe earlier experiments and must not be treated as results from the corrected full-grid run.
+Development ablations and capacity-controlled experiments show that the best architecture can vary by forecast horizon. GRU performs strongly at short horizons, while more complex combinations can become useful at longer horizons.
 
-The corrected run covers all 12 OhioT1DM patients, 10 architecture candidates, three horizons (15/30/60 minutes), and common-feature ablations. It records 198 model/feature fits and 594 patient-horizon metric rows, with no recorded training failures. Exact 5-minute contiguous windows, chronological train/validation boundaries, and horizon-aligned targets are enforced. Independent checks reported zero validation failures.
+Therefore the defensible conclusion is that forecast horizon affects the relative value of different temporal mechanisms—not that one complex architecture always wins.
 
-The corrected descriptive results do **not** support a blanket claim that one architecture is best or that multimodal inputs always help:
-- The lowest mean-MAE architecture varied by cohort and forecast horizon.
-- Tested models generally did not beat last-observation persistence at 15 minutes, rarely did at 30 minutes, and achieved only modest mean improvements at 60 minutes.
-- Glucose-only forecasts had lower average MAE than the common multimodal feature sets at 15 and 30 minutes; auxiliary inputs showed small, patient-dependent differences at 60 minutes.
-- These are research metrics, not clinical validation. Patient-level comparisons have small sample sizes, and clinical error-grid implementation details require expert review before publication.
+## Final 12-patient hybrid experiment
 
-The report describes the run protocol, feature availability, persistence comparison, limitations, and artifact inventory. The result bundle contains patient-level metrics, predictions, histories, audits, validation outputs, and logs in the local evaluation package; large generated artifacts are not all tracked in GitHub yet. OhioT1DM source data remain excluded under the dataset access agreement.
+The final hybrid run contains:
 
+**12 patients × 5 horizons = 60 patient-horizon results.**
 
-## Corrected Phase-2 status (3 October 2026)
+Saved results:
 
-- Corrected OhioT1DM bolus parsing: bolus events use `ts_begin`. Regenerated 2020 CSVs supersede earlier runs with zero bolus values.
-- 2018 multimodal inputs: CGM, carbohydrates, insulin, heart rate and steps. 2020 inputs: CGM, carbohydrates, insulin and causal acceleration summaries.
-- The model implementation supports five forecast horizons (15/30/60/90/120 min) and adaptive TCN–GRU–Transformer fusion.
-- Regression tests and a reproducible runbook are now included. Raw OhioT1DM data must not be committed.
-- See [corrected project status](reports/FINAL_PROJECT_STATUS_2026-10-03.md) and [reproducible runbook](reports/REPRODUCIBLE_RUNBOOK_2026-10-03.md).
+`output/phase2_hybrid_all12_run2/all_12_test_results.csv`
 
-**Research caution:** preliminary/short-epoch results do not establish superiority, novelty or clinical safety. Use only corrected-data results, report patient-level comparisons with multiplicity correction, and have the Clarke Error Grid implementation independently reviewed before publication.
+Mean results:
 
-- [Corrected core-run results (preliminary, six architectures)](reports/CORE_RUN_RESULTS_2026-10-03.md)
+| Horizon | Mean MAE (mg/dL) | Mean RMSE (mg/dL) |
+|---:|---:|---:|
+| 15 min | 16.77 | 23.16 |
+| 30 min | 21.41 | 29.23 |
+| 60 min | 29.92 | 40.20 |
+| 90 min | 36.43 | 48.18 |
+| 120 min | 40.46 | 53.06 |
 
-- [Corrected data-quality audit](reports/DATA_QUALITY_AUDIT_2026-10-03.md) — timestamp gaps, removed constant flags, missingness, and sleep-data limitation.
+These values are descriptive and should not be interpreted as universal superiority over all baselines.
 
-- [Corrected ten-architecture results and persistence comparison](reports/FULL_ARCHITECTURE_RESULTS_2026-10-03.md) — five horizons, 12 patients, and limitations.
+## Persistence baseline
 
-- [Corrected feature ablation results](reports/FEATURE_ABLATION_RESULTS_2026-10-03.md) — common and cohort-specific modality sets.
-- [Transformer lookback sensitivity](reports/LOOKBACK_SENSITIVITY_2026-10-03.md) — 60/120/180/240-minute windows at 15/120-minute horizons.
-- [Paired statistical analysis](reports/STATISTICAL_ANALYSIS_2026-10-03.md) — Holm-corrected tests and effect-size summary.
+Persistence is especially difficult to beat at short forecasting horizons.
+
+The corrected experiments show that model advantages become more visible at longer horizons. Persistence should therefore remain in serious comparisons.
+
+## Feature ablation
+
+Feature experiments evaluate:
+
+- glucose
+- carbohydrates
+- insulin
+- heart rate
+- steps
+- acceleration for the 2020 cohort
+- sleep where available
+
+The common-feature experiment uses glucose + carbohydrates + insulin across all 12 patients.
+
+Sleep was not treated as a fully audited independent ablation because it was not consistently available in the corrected Phase-2 CSV inputs.
+
+## Capacity-controlled architecture comparison
+
+The capacity-controlled sweep compares:
+
+- GRU
+- GRU-TCN
+- GRU-Transformer
+- Full GRU-TCN-Transformer
+
+at approximately 100K, 160K and 256K parameters.
+
+The purpose is to distinguish architectural effects from raw parameter-count effects.
+
+The results do not support a universal claim that the largest or most complex architecture is always best.
+
+## Clinical and statistical evaluation
+
+The project evaluates:
+
+- MAE
+- RMSE
+- MARD
+- signed time lag
+- Clarke Error Grid zone distribution
+
+Paired statistical comparisons are included where available. Because the number of patients is limited and many architecture/horizon comparisons are made, statistical results should be interpreted as exploratory.
+
+## Shanghai evaluation
+
+The Shanghai line contains 12 patients, 15/30/60-minute horizons, and BiLSTM, GRU, LSTM, TCN and Transformer comparisons.
+
+Shanghai results should be reported separately rather than pooled directly with Ohio results.
+
+## Repository layout
+
+```text
+.
+├── CGM_Forecasting_Experiments.ipynb
+├── hybrid_models.py
+├── hybrid_models_v2.py
+├── hybrid_experiments.py
+├── hybrid_ablation_experiments.py
+├── phase2_hybrid_model.py
+├── run_phase2_hybrid_all_patients.py
+├── phase2_feature_ablation.py
+├── ohio2020_acceleration_preprocessing.py
+├── phase2_multimodal_preprocessing.py
+├── clinical_metrics.py
+├── tests/
+├── data/
+├── output/
+└── reports/
+```
+
+## Environment setup
+
+```bash
+git clone https://github.com/sulabhyadav06/CGM-Forecasting-Research.git
+cd CGM-Forecasting-Research
+
+python -m venv .venv
+source .venv/bin/activate
+
+python -m pip install --upgrade pip
+python -m pip install -r requirements-research.txt
+python -m pip install jupyter ipykernel
+```
+
+## Data placement
+
+Authorized data can use layouts supported by the experiment loaders, including:
+
+```text
+data/train/540.csv
+data/test/540.csv
+```
+
+or:
+
+```text
+data/540_training_multimodal.csv
+data/540_testing_multimodal.csv
+```
+
+Check the relevant preprocessing and experiment scripts for exact accepted layouts.
+
+**Never commit restricted patient data or source XML files to GitHub.**
+
+## Run protocol tests
+
+```bash
+python -m pytest -q tests/test_forecast_alignment.py tests/test_research_protocol.py
+```
+
+Passing these tests does not establish clinical safety or scientific superiority.
+
+## Run the research notebook
+
+From the repository root:
+
+```bash
+jupyter notebook CGM_Forecasting_Experiments.ipynb
+```
+
+The notebook primarily reads saved result artifacts. Expensive training experiments should be launched explicitly through the corresponding scripts.
+
+## Optional smoke test
+
+```bash
+python hybrid_experiments.py   --data-root data   --patient 540   --horizons 15 30 60 90 120   --lookback 120   --epochs 2   --output-dir output/smoke_test_540
+```
+
+For the full multi-patient hybrid run:
+
+```bash
+python run_phase2_hybrid_all_patients.py   --data-root data   --output-root output/phase2_hybrid_corrected   --horizons 15 30 60 90 120   --lookback 120   --epochs 15   --seed 42
+```
+
+## Important reports
+
+Key reports include:
+
+```text
+reports/FINAL_PROJECT_STATUS_2026-10-03.md
+reports/FULL_ARCHITECTURE_RESULTS_2026-10-03.md
+reports/FEATURE_ABLATION_RESULTS_2026-10-03.md
+reports/DATA_QUALITY_AUDIT_2026-10-03.md
+reports/REPRODUCIBLE_RUNBOOK_2026-10-03.md
+reports/STATISTICAL_ANALYSIS_2026-10-03.md
+reports/LOOKBACK_SENSITIVITY_2026-10-03.md
+reports/CORE_RUN_RESULTS_2026-10-03.md
+reports/SHANGHAI_PROTOCOL_AUDIT_2026-10-05.md
+reports/HYBRID_VS_BASELINE_STATISTICS_2026-10-05.md
+```
+
+Corrected Phase-2 reports supersede affected earlier exploratory results.
+
+## Limitations
+
+1. Several architecture experiments use single seeds and relatively short training schedules.
+2. Capacity-controlled architecture experiments are primarily development-stage evidence.
+3. No architecture is a universal winner across horizons.
+4. Persistence remains a strong short-horizon baseline.
+5. Feature availability and missingness differ between OhioT1DM cohorts.
+6. The 2020 acceleration stream has substantial missingness.
+7. Patient-wise sample sizes are limited.
+8. Shanghai and Ohio experiments use different protocols.
+9. Raw data require separate authorized access.
+10. This repository is a research prototype, not a medical device or treatment system.
+
+## Reproducibility principle
+
+Every reported result should be traceable to:
+
+1. source dataset and cohort
+2. preprocessing configuration
+3. temporal split
+4. feature set
+5. model architecture
+6. training configuration
+7. random seed
+8. saved result artifact
+9. corresponding report or notebook section
+
+Do not mix corrected five-horizon results with older exploratory tables unless their protocols have been explicitly reconciled.
+
+## Data access
+
+Dataset access and redistribution are governed by the applicable dataset agreements. Do not redistribute restricted patient data with this repository.
