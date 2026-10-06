@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 import random
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -13,13 +12,6 @@ from torch import nn
 from torch.utils.data import Dataset, DataLoader
 
 from hybrid_models import HybridTCNGRUTransformer, count_parameters
-from phase2_sequence_utils import build_sequences
-
-
-PATIENTS_2018 = [559, 563, 570, 575, 588, 591]
-PATIENTS_2020 = [540, 544, 552, 567, 584, 596]
-HORIZONS = [15, 30, 60, 90, 120]
-STEP_MIN = 5
 
 
 def set_seed(seed=42):
@@ -30,22 +22,55 @@ def set_seed(seed=42):
         torch.cuda.manual_seed_all(seed)
 
 
-class SequenceDataset(Dataset):
-    def __init__(self, x, y):
-        self.x = torch.from_numpy(x.astype(np.float32))
-        self.y = torch.from_numpy(y.astype(np.float32))
+class CGMSequenceDataset(Dataset):
+    """Windowed sequences with explicit anchors and strict 5-minute continuity."""
+
+    def __init__(self, data, feature_columns, target_columns, lookback_steps, start_anchor=None, end_anchor=None):
+        self.values = data[feature_columns + target_columns].values.astype(np.float32)
+        self.n_features = len(feature_columns)
+        self.lookback_steps = lookback_steps
+        self.timestamps = pd.to_datetime(data["timestamp"]).reset_index(drop=True)
+        start = max(lookback_steps, start_anchor if start_anchor is not None else lookback_steps)
+        end = len(data) if end_anchor is None else min(end_anchor, len(data))
+        self.anchors = []
+        horizon_minutes = [int(c.removeprefix("target_")) for c in target_columns]
+        for i in range(start, end):
+            # Every input sample must be 5 minutes apart.
+            window_times = self.timestamps.iloc[i-lookback_steps:i]
+            if len(window_times) != lookback_steps:
+                continue
+            deltas = window_times.diff().dropna()
+            if not (deltas == pd.Timedelta(minutes=5)).all():
+                continue
+            last_input_time = self.timestamps.iloc[i-1]
+            if any(
+                i + h // 5 - 1 >= len(data)
+                or self.timestamps.iloc[i + h // 5 - 1] != last_input_time + pd.Timedelta(minutes=h)
+                for h in horizon_minutes
+            ):
+                continue
+            if not np.isfinite(self.values[i, self.n_features:]).all():
+                continue
+            self.anchors.append(i)
 
     def __len__(self):
-        return len(self.x)
+        return len(self.anchors)
 
     def __getitem__(self, idx):
-        return self.x[idx], self.y[idx]
-
+        i = self.anchors[idx]
+        x = self.values[i-self.lookback_steps:i, :self.n_features]
+        y = self.values[i, self.n_features:]
+        if not np.isfinite(x).all() or not np.isfinite(y).all():
+            raise ValueError(f"Non-finite sequence or target at anchor row {i}.")
+        return torch.tensor(x), torch.tensor(y)
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--data-root", default="data/phase2")
+    p.add_argument("--data-root", required=True)
+    p.add_argument("--patient", required=True)
     p.add_argument("--lookback", type=int, default=120)
+    p.add_argument("--horizons", type=int, nargs="+",
+                   default=[15, 30, 60, 90, 120])
     p.add_argument("--d-model", type=int, default=56)
     p.add_argument("--gru-hidden", type=int, default=56)
     p.add_argument("--gru-layers", type=int, default=2)
@@ -61,27 +86,46 @@ def parse_args():
     p.add_argument("--weight-decay", type=float, default=1e-4)
     p.add_argument("--grad-clip", type=float, default=1.0)
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--output-dir", default="output/phase2_hybrid_all12")
+    p.add_argument("--output-dir", default="output/phase2_hybrid")
     return p.parse_args()
 
 
-def normalize_time(df):
-    df = df.copy()
-    df["timestamp"] = (
-        pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
-        .dt.tz_localize(None)
-    )
-    return df.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
+def _read_patient_split(root, patient, split):
+    """Load either split/<patient>.csv or the repository's flat multimodal CSV layout."""
+    suffix = "training" if split == "train" else "testing"
+    cohort = "ohio2018" if str(patient) in {"559", "563", "570", "575", "588", "591"} else "ohio2020"
+    candidates = [
+        os.path.join(root, split, f"{patient}.csv"),
+        os.path.join(root, "phase2", cohort, split, f"{patient}.csv"),
+        os.path.join(root, cohort, split, f"{patient}.csv"),
+        os.path.join(root, f"{patient}_{suffix}_multimodal.csv"),
+        os.path.join(root, f"{patient}_{split}_multimodal.csv"),
+        os.path.join(root, "OhioT1DM_data_backup", f"{patient}_{suffix}_multimodal.csv"),
+    ]
+    path = next((candidate for candidate in candidates if os.path.isfile(candidate)), None)
+    if path is None:
+        expected = "\n".join(f"  - {candidate}" for candidate in candidates)
+        raise FileNotFoundError(
+            f"Could not find {split} CSV for patient {patient}. Checked:\n{expected}"
+        )
+
+    df = pd.read_csv(path)
+    # Accommodate both lowercase canonical headers and TitleCase CSV exports.
+    df.columns = [str(column).strip().lower() for column in df.columns]
+    required = {"timestamp", "glucose"}
+    missing = required.difference(df.columns)
+    if missing:
+        raise ValueError(
+            f"{path} is missing required columns after header normalization: {sorted(missing)}"
+        )
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="raise")
+    return df.sort_values("timestamp").reset_index(drop=True)
 
 
-def load_patient_data(root, cohort, patient):
-    train = pd.read_csv(
-        Path(root) / cohort / "train" / f"{patient}.csv"
-    )
-    test = pd.read_csv(
-        Path(root) / cohort / "test" / f"{patient}.csv"
-    )
-    return normalize_time(train), normalize_time(test)
+def load_patient_data(root, patient):
+    train = _read_patient_split(root, patient, "train")
+    test = _read_patient_split(root, patient, "test")
+    return train, test
 
 
 def get_feature_columns(df):
@@ -97,94 +141,75 @@ def get_feature_columns(df):
     return ["glucose"] + cols
 
 
+def add_targets(train, test, horizons):
+    train, test = train.copy(), test.copy()
+    for h in horizons:
+        if h % 5:
+            raise ValueError("Horizons must be multiples of 5 minutes.")
+        steps = h // 5
+        train[f"target_{h}"] = train["glucose"].shift(-(steps - 1))
+        test[f"target_{h}"] = test["glucose"].shift(-(steps - 1))
+    return train, test
+
+
 def fit_imputer(df, columns):
-    medians = {}
+    out = {}
     for c in columns:
-        values = pd.to_numeric(df[c], errors="coerce")
-        median = values.median()
+        median = df[c].median()
         if not np.isfinite(median):
-            raise ValueError(f"Invalid training median for {c}")
-        medians[c] = float(median)
-    return medians
+            raise ValueError(f"Invalid median for {c}")
+        out[c] = float(median)
+    return out
 
 
 def apply_imputer(df, medians):
-    out = df.copy()
+    df = df.copy()
     for c, median in medians.items():
-        out[c] = (
-            pd.to_numeric(out[c], errors="coerce")
+        df[c] = (
+            df[c]
             .replace([np.inf, -np.inf], np.nan)
             .fillna(median)
-            .astype(np.float64)
         )
-    return out
+    return df
 
 
 def fit_scaler(df, columns):
-    scaler = {}
+    out = {}
     for c in columns:
-        values = df[c].to_numpy(dtype=np.float64)
-        mean = float(np.mean(values))
-        std = float(np.std(values, ddof=1))
+        mean = df[c].mean()
+        std = df[c].std()
         if not np.isfinite(mean):
-            raise ValueError(f"Invalid training mean for {c}")
+            raise ValueError(f"Invalid mean for {c}")
         if not np.isfinite(std) or std < 1e-8:
             std = 1.0
-        scaler[c] = {"mean": mean, "std": std}
-    return scaler
-
-
-def apply_scaler(df, scaler):
-    out = df.copy()
-    for c, s in scaler.items():
-        out[c] = (
-            (out[c].to_numpy(dtype=np.float64) - s["mean"])
-            / s["std"]
-        )
+        out[c] = {"mean": float(mean), "std": float(std)}
     return out
 
 
-def split_train_validation(df, fraction):
-    n_val = max(int(len(df) * fraction), 1)
-    if n_val >= len(df):
-        raise ValueError("Validation split leaves no training rows.")
-    return df.iloc[:-n_val].copy(), df.iloc[-n_val:].copy()
+def apply_scaler(df, scaler):
+    df = df.copy()
+    for c, s in scaler.items():
+        df[c] = (df[c] - s["mean"]) / s["std"]
+    return df
 
 
-def make_sequences(df, features, lookback_min):
-    X, y, metadata = build_sequences(
-        df=df,
-        feature_cols=features,
-        target_col="glucose",
-        lookback_steps=lookback_min // STEP_MIN,
-        horizon_steps=[h // STEP_MIN for h in HORIZONS],
-        step_min=STEP_MIN,
-        timestamp_col="timestamp",
-    )
-    return X, y, metadata
+def sanity_check(df, columns, name):
+    a = df[columns].to_numpy(dtype=np.float32)
+    if not np.isfinite(a).all():
+        bad = [c for c in columns
+               if not np.isfinite(df[c].to_numpy(dtype=np.float32)).all()]
+        raise ValueError(f"{name} contains NaN/Inf: {bad}")
+    print(f"{name}: all features/targets are finite")
 
 
-def train_model(
-    model,
-    train_loader,
-    val_loader,
-    device,
-    epochs,
-    lr,
-    weight_decay,
-    patience,
-    grad_clip,
-):
+def train_model(model, train_loader, val_loader, device,
+                epochs, lr, weight_decay, patience, grad_clip):
     optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=lr,
-        weight_decay=weight_decay,
+        model.parameters(), lr=lr, weight_decay=weight_decay
     )
-    criterion = nn.SmoothL1Loss()
-
+    criterion = nn.MSELoss()
     best_val = float("inf")
     best_state = None
-    best_epoch = 0
     wait = 0
     history = []
 
@@ -194,22 +219,24 @@ def train_model(
 
         for x, y in train_loader:
             x, y = x.to(device), y.to(device)
-            optimizer.zero_grad()
 
+            if not torch.isfinite(x).all():
+                raise ValueError("Non-finite input batch.")
+            if not torch.isfinite(y).all():
+                raise ValueError("Non-finite target batch.")
+
+            optimizer.zero_grad()
             pred = model(x)
 
             if not torch.isfinite(pred).all():
                 raise ValueError("Model produced NaN/Inf predictions.")
 
             loss = criterion(pred, y)
-
             if not torch.isfinite(loss):
                 raise ValueError("Training loss became NaN/Inf.")
 
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(
-                model.parameters(), grad_clip
-            )
+            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
             optimizer.step()
             train_losses.append(loss.item())
 
@@ -227,7 +254,6 @@ def train_model(
 
         train_loss = float(np.mean(train_losses))
         val_loss = float(np.mean(val_losses))
-
         history.append({
             "epoch": epoch,
             "train_loss": train_loss,
@@ -235,13 +261,12 @@ def train_model(
         })
 
         print(
-            f"    Epoch {epoch:02d} | "
+            f"Epoch {epoch:02d} | "
             f"Train {train_loss:.5f} | Val {val_loss:.5f}"
         )
 
         if val_loss < best_val:
             best_val = val_loss
-            best_epoch = epoch
             best_state = {
                 k: v.detach().cpu().clone()
                 for k, v in model.state_dict().items()
@@ -250,138 +275,145 @@ def train_model(
         else:
             wait += 1
             if wait >= patience:
+                print("Early stopping.")
                 break
 
-    if best_state is None:
-        raise RuntimeError("No best model state was saved.")
+    if best_state is not None:
+        model.load_state_dict(best_state)
 
-    model.load_state_dict(best_state)
-    return model, history, best_epoch, best_val
+    return model, history
 
 
-def evaluate(model, loader, device, scaler):
+def evaluate_model(model, loader, device, horizons, scaler):
     model.eval()
-    preds = []
-    targets = []
-    gates = []
+    preds, targets, gates = [], [], []
 
     with torch.no_grad():
         for x, y in loader:
-            x = x.to(device)
-            pred, gate = model(
-                x,
-                return_gates=True,
-            )
+            x, y = x.to(device), y.to(device)
+            pred, gate = model(x, return_gates=True)
             preds.append(pred.cpu().numpy())
-            targets.append(y.numpy())
+            targets.append(y.cpu().numpy())
             gates.append(gate.cpu().numpy())
 
     preds = np.concatenate(preds)
     targets = np.concatenate(targets)
     gates = np.concatenate(gates)
 
-    glucose_mean = scaler["glucose"]["mean"]
-    glucose_std = scaler["glucose"]["std"]
-
-    preds = preds * glucose_std + glucose_mean
-    targets = targets * glucose_std + glucose_mean
-
     rows = []
-    for i, horizon in enumerate(HORIZONS):
-        error = preds[:, i] - targets[:, i]
+    for i, h in enumerate(horizons):
+        s = scaler[f"target_{h}"]
+        pred = preds[:, i] * s["std"] + s["mean"]
+        true = targets[:, i] * s["std"] + s["mean"]
+        err = pred - true
         rows.append({
-            "horizon_min": horizon,
-            "mae_mgdl": float(np.mean(np.abs(error))),
-            "rmse_mgdl": float(np.sqrt(np.mean(error ** 2))),
-            "n_samples": int(len(error)),
+            "horizon": h,
+            "mae_mgdl": float(np.mean(np.abs(err))),
+            "rmse_mgdl": float(np.sqrt(np.mean(err ** 2))),
+            "n_samples": len(true),
         })
 
     gate_summary = {
         "tcn_mean": float(gates[:, 0].mean()),
         "gru_mean": float(gates[:, 1].mean()),
         "transformer_mean": float(gates[:, 2].mean()),
-        "tcn_sd": float(gates[:, 0].std()),
-        "gru_sd": float(gates[:, 1].std()),
-        "transformer_sd": float(gates[:, 2].std()),
+        "tcn_std": float(gates[:, 0].std()),
+        "gru_std": float(gates[:, 1].std()),
+        "transformer_std": float(gates[:, 2].std()),
     }
 
-    return pd.DataFrame(rows), gate_summary
+    return pd.DataFrame(rows), gate_summary, gates
 
 
-def run_patient(
-    args,
-    cohort,
-    patient,
-    device,
-    output_dir,
-):
-    print("\n" + "=" * 70)
-    print(f"COHORT={cohort} | PATIENT={patient}")
-    print("=" * 70)
+def main():
+    args = parse_args()
+    set_seed(args.seed)
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "cpu"
+    )
+
+    print(f"Device: {device}")
+    print(f"Patient: {args.patient}")
+    print(f"Lookback: {args.lookback} min")
+    print(f"Horizons: {args.horizons}")
 
     train_df, test_df = load_patient_data(
-        args.data_root, cohort, patient
+        args.data_root, args.patient
     )
 
     features = get_feature_columns(train_df)
 
-    print("Features:")
-    print(", ".join(features))
+    print("\nFeatures:")
+    for c in features:
+        print(f"  - {c}")
 
-    train_part, val_part = split_train_validation(
-        train_df,
-        args.val_fraction,
+    train_df, test_df = add_targets(
+        train_df, test_df, args.horizons
     )
 
-    # Train-only imputation.
-    imputer = fit_imputer(train_part, features)
+    targets = [f"target_{h}" for h in args.horizons]
 
-    train_part = apply_imputer(train_part, imputer)
-    val_part = apply_imputer(val_part, imputer)
-    test_part = apply_imputer(test_df, imputer)
+    if args.lookback % 5:
+        raise ValueError("Lookback must be a multiple of 5 minutes.")
+    lookback_steps = args.lookback // 5
+    if not 0 < args.val_fraction < 1:
+        raise ValueError("--val-fraction must be between 0 and 1.")
 
-    # Train-only scaling.
-    scaler = fit_scaler(train_part, features)
-
-    train_scaled = apply_scaler(train_part, scaler)
-    val_scaled = apply_scaler(val_part, scaler)
-    test_scaled = apply_scaler(test_part, scaler)
-
-    # Gap-safe sequences.
-    X_train, y_train, train_meta = make_sequences(
-        train_scaled, features, args.lookback
-    )
-    X_val, y_val, val_meta = make_sequences(
-        val_scaled, features, args.lookback
-    )
-    X_test, y_test, test_meta = make_sequences(
-        test_scaled, features, args.lookback
-    )
-
-    if min(len(X_train), len(X_val), len(X_test)) == 0:
-        raise RuntimeError(
-            f"{cohort}/{patient}: one split has zero valid sequences."
+    # Chronological split is defined before building windows. With inputs
+    # ending at i-1, horizon h targets row i + h/5 - 1.
+    split_idx = int(len(train_df) * (1.0 - args.val_fraction))
+    max_offset = max(args.horizons) // 5 - 1
+    train_end = split_idx - max_offset
+    val_end = len(train_df) - max_offset
+    if train_end <= lookback_steps or val_end <= split_idx:
+        raise ValueError(
+            "Not enough rows for the requested lookback, horizons, and validation fraction."
         )
 
-    print(
-        f"Sequences: train={len(X_train)}, "
-        f"val={len(X_val)}, test={len(X_test)}"
+    # Keep pre-split history available to validation windows, while excluding
+    # every training anchor whose longest-horizon label crosses the boundary.
+    test_df = test_df.dropna(subset=targets).reset_index(drop=True)
+    train_fit_rows = train_df.iloc[:split_idx].copy()
+    train_anchor_rows = train_df.iloc[lookback_steps:train_end].copy()
+    imputer = fit_imputer(train_fit_rows, features)
+    train_scaled = apply_imputer(train_df, imputer)
+    test_df = apply_imputer(test_df, imputer)
+    scaler = fit_scaler(train_anchor_rows, features + targets)
+    train_scaled = apply_scaler(train_scaled, scaler)
+    test_scaled = apply_scaler(test_df, scaler)
+
+    sanity_check(train_scaled.iloc[lookback_steps:train_end], features + targets, "train")
+    sanity_check(train_scaled.iloc[split_idx:val_end], features + targets, "validation")
+    sanity_check(test_scaled, features + targets, "test")
+
+    train_dataset = CGMSequenceDataset(
+        train_scaled, features, targets, lookback_steps,
+        start_anchor=lookback_steps, end_anchor=train_end,
     )
 
+    val_dataset = CGMSequenceDataset(
+        train_scaled, features, targets, lookback_steps,
+        start_anchor=split_idx, end_anchor=val_end,
+    )
+
+    test_dataset = CGMSequenceDataset(
+        test_scaled, features, targets, lookback_steps
+    )
+
+    print(f"\nTrain sequences: {len(train_dataset)}")
+    print(f"Validation sequences: {len(val_dataset)}")
+    print(f"Test sequences: {len(test_dataset)}")
+
     train_loader = DataLoader(
-        SequenceDataset(X_train, y_train),
-        batch_size=args.batch_size,
-        shuffle=True,
+        train_dataset, batch_size=args.batch_size, shuffle=True
     )
     val_loader = DataLoader(
-        SequenceDataset(X_val, y_val),
-        batch_size=args.batch_size,
-        shuffle=False,
+        val_dataset, batch_size=args.batch_size, shuffle=False
     )
     test_loader = DataLoader(
-        SequenceDataset(X_test, y_test),
-        batch_size=args.batch_size,
-        shuffle=False,
+        test_dataset, batch_size=args.batch_size, shuffle=False
     )
 
     model = HybridTCNGRUTransformer(
@@ -392,181 +424,93 @@ def run_patient(
         tcn_levels=args.tcn_levels,
         transformer_heads=args.heads,
         transformer_layers=args.transformer_layers,
-        horizons=HORIZONS,
+        horizons=args.horizons,
         dropout=args.dropout,
-        max_len=args.lookback // STEP_MIN,
+        max_len=lookback_steps,
     ).to(device)
 
     params = count_parameters(model)
-    print(f"Trainable parameters: {params:,}")
+    print(f"\nTrainable parameters: {params:,}")
 
-    model, history, best_epoch, best_val = train_model(
-        model,
-        train_loader,
-        val_loader,
-        device,
-        args.epochs,
-        args.lr,
-        args.weight_decay,
-        args.patience,
-        args.grad_clip,
+    model, history = train_model(
+        model, train_loader, val_loader, device,
+        args.epochs, args.lr, args.weight_decay,
+        args.patience, args.grad_clip
     )
 
-    results, gates = evaluate(
-        model,
-        test_loader,
-        device,
-        scaler,
+    results, gate_summary, gate_values = evaluate_model(
+        model, test_loader, device, args.horizons, scaler
     )
 
-    results.insert(0, "patient", patient)
-    results.insert(0, "cohort", cohort)
-    results["lookback_min"] = args.lookback
-    results["parameters"] = params
-    results["best_epoch"] = best_epoch
-    results["best_val_loss"] = best_val
+    results.insert(0, "patient", args.patient)
+    results.insert(1, "lookback_min", args.lookback)
 
-    patient_dir = output_dir / cohort / str(patient)
-    patient_dir.mkdir(parents=True, exist_ok=True)
+    print("\nTest results:")
+    print(results.to_string(index=False))
 
-    results.to_csv(
-        patient_dir / "test_results.csv",
-        index=False,
+    print("\nAverage adaptive fusion weights:")
+    print(f"TCN:         {gate_summary['tcn_mean']:.4f}")
+    print(f"GRU:         {gate_summary['gru_mean']:.4f}")
+    print(f"Transformer: {gate_summary['transformer_mean']:.4f}")
+
+    prefix = os.path.join(
+        args.output_dir,
+        f"patient_{args.patient}"
     )
+
+    results.to_csv(f"{prefix}_results.csv", index=False)
+
+    pd.DataFrame(
+        gate_values,
+        columns=[
+            "tcn_gate",
+            "gru_gate",
+            "transformer_gate",
+        ],
+    ).to_csv(f"{prefix}_gates.csv", index=False)
+
     pd.DataFrame(history).to_csv(
-        patient_dir / "training_history.csv",
-        index=False,
+        f"{prefix}_training.csv", index=False
     )
-
-    with open(patient_dir / "config.json", "w") as f:
-        json.dump(
-            {
-                "cohort": cohort,
-                "patient": patient,
-                "features": features,
-                "lookback_min": args.lookback,
-                "horizons": HORIZONS,
-                "parameters": params,
-                "best_epoch": best_epoch,
-                "best_val_loss": best_val,
-                "gate_summary": gates,
-                "imputer_medians": imputer,
-                "scaler": scaler,
-                "n_sequences": {
-                    "train": len(X_train),
-                    "validation": len(X_val),
-                    "test": len(X_test),
-                },
-            },
-            f,
-            indent=2,
-        )
 
     torch.save(
         model.state_dict(),
-        patient_dir / "best_model.pt",
+        f"{prefix}_model.pt",
     )
 
-    return results, gates
+    config = {
+        "patient": args.patient,
+        "lookback_min": args.lookback,
+        "lookback_steps": lookback_steps,
+        "horizons": args.horizons,
+        "features": features,
+        "parameters": params,
+        "d_model": args.d_model,
+        "gru_hidden": args.gru_hidden,
+        "gru_layers": args.gru_layers,
+        "tcn_levels": args.tcn_levels,
+        "transformer_heads": args.heads,
+        "transformer_layers": args.transformer_layers,
+        "dropout": args.dropout,
+        "batch_size": args.batch_size,
+        "epochs": args.epochs,
+        "patience": args.patience,
+        "learning_rate": args.lr,
+        "weight_decay": args.weight_decay,
+        "imputer_medians": imputer,
+        "scaler": scaler,
+        "gate_summary": gate_summary,
+    }
 
+    with open(f"{prefix}_config.json", "w") as f:
+        json.dump(config, f, indent=2)
 
-def main():
-    args = parse_args()
-
-    if args.lookback % STEP_MIN:
-        raise ValueError("Lookback must be divisible by 5 minutes.")
-
-    set_seed(args.seed)
-
-    device = torch.device(
-        "cuda" if torch.cuda.is_available() else "cpu"
-    )
-
-    print(f"Device: {device}")
-    print(f"Lookback: {args.lookback} min")
-    print(f"Horizons: {HORIZONS}")
-    print("Protocol: gap-safe + train-only imputation/scaling")
-
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    all_results = []
-    all_gates = []
-
-    for cohort, patients in [
-        ("ohio2018", PATIENTS_2018),
-        ("ohio2020", PATIENTS_2020),
-    ]:
-        for patient in patients:
-            results, gates = run_patient(
-                args,
-                cohort,
-                patient,
-                device,
-                output_dir,
-            )
-            all_results.append(results)
-
-            all_gates.append({
-                "cohort": cohort,
-                "patient": patient,
-                **gates,
-            })
-
-    results = pd.concat(
-        all_results,
-        ignore_index=True,
-    )
-
-    results.to_csv(
-        output_dir / "all_12_test_results.csv",
-        index=False,
-    )
-
-    summary = (
-        results
-        .groupby(
-            ["cohort", "horizon_min"],
-            as_index=False,
-        )
-        .agg(
-            mae_mean=("mae_mgdl", "mean"),
-            mae_sd=("mae_mgdl", "std"),
-            rmse_mean=("rmse_mgdl", "mean"),
-            rmse_sd=("rmse_mgdl", "std"),
-            n_patients=("patient", "nunique"),
-        )
-    )
-
-    overall = (
-        results
-        .groupby("horizon_min", as_index=False)
-        .agg(
-            mae_mean=("mae_mgdl", "mean"),
-            mae_sd=("mae_mgdl", "std"),
-            rmse_mean=("rmse_mgdl", "mean"),
-            rmse_sd=("rmse_mgdl", "std"),
-            n_patients=("patient", "nunique"),
-        )
-    )
-
-    summary.to_csv(
-        output_dir / "cohort_summary.csv",
-        index=False,
-    )
-    overall.to_csv(
-        output_dir / "all12_summary.csv",
-        index=False,
-    )
-    pd.DataFrame(all_gates).to_csv(
-        output_dir / "gate_summary.csv",
-        index=False,
-    )
-
-    print("\n" + "=" * 70)
-    print("FINAL ALL-12 HYBRID RESULTS")
-    print("=" * 70)
-    print(overall.to_string(index=False))
+    print("\nSaved:")
+    print(f"{prefix}_results.csv")
+    print(f"{prefix}_gates.csv")
+    print(f"{prefix}_training.csv")
+    print(f"{prefix}_model.pt")
+    print(f"{prefix}_config.json")
 
 
 if __name__ == "__main__":
