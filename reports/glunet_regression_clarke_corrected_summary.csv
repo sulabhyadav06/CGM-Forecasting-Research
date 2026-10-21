@@ -1,0 +1,7 @@
+,,CEGA_A_pct,CEGA_A_pct,CEGA_B_pct,CEGA_B_pct,CEGA_C_pct,CEGA_C_pct,CEGA_D_pct,CEGA_D_pct,CEGA_E_pct,CEGA_E_pct,out_of_domain_pct,out_of_domain_pct
+,,mean,std,mean,std,mean,std,mean,std,mean,std,mean,std
+horizon,model,,,,,,,,,,,,
+30,huber_regression,89.2647,4.1542,9.7899,3.5494,0.0067,0.0136,0.9387,0.7118,0.0,0.0,0.0,0.0
+30,persistence,83.4347,5.9214,15.51,5.3576,0.0165,0.0311,1.0388,0.7211,0.0,0.0,0.0,0.0
+60,huber_regression,72.3882,8.6976,24.73,7.177,0.1513,0.1093,2.7081,1.6992,0.0224,0.037,0.0,0.0
+60,persistence,64.7844,8.403,31.9416,7.0522,0.6511,0.598,2.561,1.4605,0.0619,0.0842,0.0,0.0

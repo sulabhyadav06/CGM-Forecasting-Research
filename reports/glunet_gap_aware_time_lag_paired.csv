@@ -1,0 +1,7 @@
+horizon,seed,patients,regression_closer_to_zero,tie,persistence_closer_to_zero
+30,7,12,12,0,0
+30,42,12,12,0,0
+30,123,12,12,0,0
+60,7,12,12,0,0
+60,42,12,11,1,0
+60,123,12,11,1,0

@@ -1,0 +1,13 @@
+horizon,max_lag_minutes,model,mean_lag_minutes,sd_lag_across_patients,mean_absolute_lag_minutes,patients
+30,60,huber_regression,21.528,3.922,21.528,12
+30,60,persistence,30.0,0.0,30.0,12
+30,120,huber_regression,21.528,3.922,21.528,12
+30,120,persistence,30.0,0.0,30.0,12
+30,180,huber_regression,21.528,3.922,21.528,12
+30,180,persistence,30.0,0.0,30.0,12
+60,60,huber_regression,46.111,9.753,46.111,12
+60,60,persistence,60.0,0.0,60.0,12
+60,120,huber_regression,46.111,9.753,46.111,12
+60,120,persistence,60.0,0.0,60.0,12
+60,180,huber_regression,46.111,9.753,46.111,12
+60,180,persistence,60.0,0.0,60.0,12

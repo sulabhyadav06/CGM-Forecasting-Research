@@ -1,0 +1,7 @@
+horizon,seed,n_patients,MAE_regression_wins,RMSE_regression_wins,MARD_regression_wins,TimeLag_min_regression_wins,CEGA_D_pct_regression_wins,CEGA_E_pct_regression_wins,CEGA_A_pct_regression_wins
+30,7,12,12,12,12,12,8,0,12
+30,42,12,12,12,12,12,8,0,12
+30,123,12,12,12,12,12,8,0,12
+60,7,12,12,12,11,12,6,5,10
+60,42,12,12,12,11,11,6,5,12
+60,123,12,12,12,11,11,6,5,12

@@ -1,0 +1,7 @@
+,,MAE,MAE,RMSE,RMSE,signed_error,signed_error,MARD,MARD,TimeLag_min_gap_aware,TimeLag_min_gap_aware,CEGA_A_pct,CEGA_A_pct,CEGA_B_pct,CEGA_B_pct,CEGA_C_pct,CEGA_C_pct,CEGA_D_pct,CEGA_D_pct,CEGA_E_pct,CEGA_E_pct
+,,mean,std,mean,std,mean,std,mean,std,mean,std,mean,std,mean,std,mean,std,mean,std,mean,std
+horizon,model,,,,,,,,,,,,,,,,,,,,
+30,huber_regression,13.526,1.628,19.318,2.501,-1.237,1.605,9.114,1.745,21.528,3.922,89.27,4.149,9.785,3.545,0.007,0.013,0.939,0.711,0.0,0.0
+30,persistence,16.861,2.054,23.234,2.893,0.018,0.523,11.339,2.1,30.0,0.0,83.608,5.879,15.353,5.322,0.017,0.032,1.023,0.704,0.0,0.0
+60,huber_regression,23.507,3.419,32.356,4.375,-2.184,4.051,15.907,3.342,46.111,9.753,72.389,8.696,24.728,7.176,0.151,0.109,2.708,1.7,0.023,0.037
+60,persistence,28.293,3.522,38.101,4.75,0.022,1.108,19.243,3.598,60.0,0.0,65.051,8.379,31.701,7.029,0.652,0.599,2.537,1.443,0.062,0.084

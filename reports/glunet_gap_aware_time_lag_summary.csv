@@ -1,0 +1,7 @@
+,,gap_aware_time_lag_min,gap_aware_time_lag_min,absolute_gap_aware_lag_min,absolute_gap_aware_lag_min
+,,mean,std,mean,std
+horizon,model,,,,
+30,huber_regression,21.528,3.922,21.528,3.922
+30,persistence,30.0,0.0,30.0,0.0
+60,huber_regression,46.111,9.753,46.111,9.753
+60,persistence,60.0,0.0,60.0,0.0
