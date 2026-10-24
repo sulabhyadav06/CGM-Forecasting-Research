@@ -175,6 +175,77 @@ The Shanghai line contains 12 patients, 15/30/60-minute horizons, and BiLSTM, GR
 
 Shanghai results should be reported separately rather than pooled directly with Ohio results.
 
+## Paper-reproduction tracks: CRNN and GluNet
+
+These experiments are maintained separately from the broader Phase-2 hybrid
+architecture study. Their current results are audited baselines, not claims of
+exact reproduction of the original publications.
+
+### CRNN glucose forecasting
+
+Implementation: `experiments/crnn/`
+
+- Model: three convolutional layers followed by a modified LSTM and dense head.
+- Cohort: 12 OhioT1DM patients.
+- Horizons: 30 and 60 minutes.
+- Inputs: glucose, carbohydrates over the preceding 60 minutes, and insulin
+  bolus over the preceding 60 minutes.
+- Evaluation: MAE, RMSE, and MARD, with saved patient-level predictions.
+
+Current audited aggregate results:
+
+| Metric | 30 min | 60 min |
+|---|---:|---:|
+| Mean patient MAE (mg/dL) | 13.494 | 23.637 |
+| Mean patient RMSE (mg/dL) | 19.309 | 32.576 |
+| Mean patient MARD (%) | 9.073 | 15.782 |
+
+All 24 saved patient-horizon prediction files were checked against recomputed
+sample counts, MAE, RMSE, and MARD; the audit reported zero mismatches at
+absolute tolerance 1e-5.
+
+Reproducibility notes: `reports/CRNN_REPRODUCIBILITY_STATUS_2026-10-24.md`
+and `reports/PROJECT_VALIDATION_2026-10-24.md`.
+
+**Limitation:** exact reproduction of the published CRNN architecture and
+training protocol has not been established. In particular, the modified LSTM
+parameter count and residual projection require further paper-level verification.
+
+### GluNet-inspired regression baseline
+
+Implementation: `experiments/glunet/`
+
+- Cohort: 12 OhioT1DM patients.
+- Horizons: 30 and 60 minutes.
+- Seeds: 7, 42, and 123.
+- Lookback: 16 five-minute samples.
+- Inputs: glucose, recent carbohydrate and bolus features, and cyclical
+  time-of-day features.
+- Model objective: continuous glucose-change regression with Huber loss.
+- Comparator: persistence forecast on matching test timestamps.
+
+Reported equal-weight patient means, after averaging seeds within each patient:
+
+| Horizon | Model | MAE (mg/dL) | RMSE (mg/dL) | MARD (%) |
+|---|---|---:|---:|---:|
+| 30 min | GluNet-inspired Huber regression | 13.526 | 19.318 | 9.114 |
+| 30 min | Persistence | 16.861 | 23.234 | 11.339 |
+| 60 min | GluNet-inspired Huber regression | 23.507 | 32.356 | 15.907 |
+| 60 min | Persistence | 28.293 | 38.101 | 19.243 |
+
+Detailed results, uncertainty estimates, clinical metric checks, and limitations:
+`reports/GLUNET_HUBER_REGRESSION_REPRODUCIBILITY_RECORD_2026-10-21.md`.
+
+**Limitation:** this is a GluNet-inspired continuous-regression baseline, not an
+exact reproduction of the published GluNet model. Results are exploratory and
+do not establish clinical benefit or generalization beyond this cohort.
+
+### Interpreting results across tracks
+
+CRNN and GluNet results come from different implementations and training
+protocols. Do not treat their headline numbers as a controlled head-to-head
+comparison. The broader Phase-2 hybrid results are reported separately above.
+
 ## Repository layout
 
 ```text
@@ -233,7 +304,7 @@ Check the relevant preprocessing and experiment scripts for exact accepted layou
 ## Run protocol tests
 
 ```bash
-python -m pytest -q tests/test_forecast_alignment.py tests/test_research_protocol.py
+python -m pytest -q --import-mode=importlib
 ```
 
 Passing these tests does not establish clinical safety or scientific superiority.
