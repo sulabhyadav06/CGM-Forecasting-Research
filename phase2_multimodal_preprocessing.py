@@ -82,6 +82,7 @@ def parse_xml(path: Path):
         "carbs": [],
         "bolus": [],
         "basal": [],
+        "temp_basal": [],
         "heart_rate": [],
         "steps": [],
         "acceleration": [],
@@ -98,7 +99,13 @@ def parse_xml(path: Path):
             if tag != "event":
                 continue
 
-            timestamp = parse_ts(event.attrib.get("ts"))
+            # Bolus events use ts_begin; ordinary observations use ts.
+            timestamp_attr = (
+                "ts_begin"
+                if section_name in ("bolus", "temp_basal")
+                else "ts"
+            )
+            timestamp = parse_ts(event.attrib.get(timestamp_attr))
             if pd.isna(timestamp):
                 continue
 
@@ -124,9 +131,21 @@ def parse_xml(path: Path):
                 if np.isfinite(value):
                     records["bolus"].append((timestamp, value))
 
-            elif section_name in ("basal", "temp_basal"):
+            elif section_name == "basal":
                 if np.isfinite(value):
                     records["basal"].append((timestamp, value))
+
+            elif section_name == "temp_basal":
+                end = parse_ts(event.attrib.get("ts_end"))
+                rate = attr_float(event, ("value",))
+                if (
+                    not pd.isna(end)
+                    and end > timestamp
+                    and np.isfinite(rate)
+                ):
+                    records["temp_basal"].append(
+                        (timestamp, end, rate)
+                    )
 
             elif section_name in (
                 "basis_heart_rate",
@@ -176,10 +195,27 @@ def parse_xml(path: Path):
             .reset_index(drop=True)
         )
 
-    return {
+    parsed = {
         key: make_df(value, key)
         for key, value in records.items()
+        if key != "temp_basal"
     }
+
+    temp_basal = pd.DataFrame(
+        records["temp_basal"],
+        columns=["start", "end", "value"],
+    )
+    for column in ("start", "end"):
+        temp_basal[column] = pd.to_datetime(
+            temp_basal[column],
+            utc=True,
+        )
+
+    parsed["temp_basal"] = temp_basal.sort_values(
+        "start"
+    ).reset_index(drop=True)
+
+    return parsed
 
 
 def event_total(grid, events, value_column):
@@ -373,6 +409,35 @@ def align_basal(grid, basal):
     )
 
 
+
+def apply_temp_basal(grid, basal, temp_basal):
+    """
+    Align ordinary basal state causally, then override it during
+    temporary basal intervals [start, end).
+
+    If temporary intervals overlap, the latest-starting active interval
+    takes precedence.
+    """
+    result = align_basal(grid, basal).to_numpy(dtype=float, copy=True)
+
+    if temp_basal.empty:
+        return pd.Series(result, index=grid.index, name="basal_rate")
+
+    intervals = temp_basal.sort_values(
+        ["start", "end"]
+    ).reset_index(drop=True)
+
+    timestamps = pd.to_datetime(grid["timestamp"], utc=True)
+
+    for row in intervals.itertuples(index=False):
+        active = (
+            (timestamps >= row.start)
+            & (timestamps < row.end)
+        ).to_numpy()
+        result[active] = float(row.value)
+
+    return pd.Series(result, index=grid.index, name="basal_rate")
+
 def process(path: Path, cohort: str):
     data = parse_xml(path)
 
@@ -404,9 +469,10 @@ def process(path: Path, cohort: str):
         "bolus",
     )
 
-    grid["basal_rate"] = align_basal(
+    grid["basal_rate"] = apply_temp_basal(
         grid,
         data["basal"],
+        data["temp_basal"],
     ).to_numpy()
 
     if cohort == "2018":
