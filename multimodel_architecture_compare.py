@@ -5,8 +5,7 @@ Changes from the previous version:
   1. Default feature set no longer includes HeartRate/Steps -- those are
      100% missing for the 6 2020 patients (different wristband, confirmed
      against the actual XML). The default now uses features available for
-     ALL 12 patients: Glucose + carbs_last_60min + is_sleeping +
-     bolus_last_60min + basal_rate (insulin replaces HR/Steps as the added
+     ALL 12 patients: Glucose + carbs_last_60min + bolus_last_60min + basal_rate (insulin replaces HR/Steps as the added
      physiological signal -- arguably more directly relevant to glucose
      dynamics anyway).
   2. A second, separate run (FEATURE_COLS_2018_RICH) adds HeartRate + Steps
@@ -17,10 +16,9 @@ Changes from the previous version:
      so that bolus_last_60min / basal_rate columns exist in the CSVs.
 
 Outputs:
-    output/architecture_results_by_patient.csv       (all 12 patients, insulin feature set)
-    output/architecture_results_2018_wearable.csv     (6 2018 patients, +HR/Steps)
-    output/architecture_summary_mean_sd.csv
-    output/architecture_summary_2018_wearable_mean_sd.csv
+    output/phase2_primary_sleepfree/architecture_all12_results.csv
+    output/phase2_primary_sleepfree/architecture_2018_wearable_results.csv
+    output/phase2_primary_sleepfree/*_summary_mean_sd.csv
 """
 
 import os
@@ -60,12 +58,13 @@ BATCH_SIZE = 128
 SAMPLE_INTERVAL_MIN = 5
 
 # Available for all 12 patients (insulin replaces HR/Steps as the added signal)
-FEATURE_COLS_ALL12 = ["Glucose", "carbs_last_60min", "is_sleeping", "bolus_last_60min", "basal_rate"]
+FEATURE_COLS_ALL12 = ["Glucose", "carbs_last_60min", "bolus_last_60min", "basal_rate"]
 # Richer set, 2018 cohort only (HR/Steps unavailable for 2020 patients)
-FEATURE_COLS_2018_RICH = ["Glucose", "HeartRate", "Steps", "carbs_last_60min", "is_sleeping",
+FEATURE_COLS_2018_RICH = ["Glucose", "HeartRate", "Steps", "carbs_last_60min",
                            "bolus_last_60min", "basal_rate"]
 
-os.makedirs("output", exist_ok=True)
+OUTPUT_DIR = "output/phase2_primary_sleepfree"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 def create_sequences(X, y, window=WINDOW):
@@ -250,14 +249,14 @@ def run_comparison(patient_ids, feature_cols, out_prefix, max_workers=None):
     # fix: round all numeric columns to 2 decimal places for readability
     numeric_cols = full_df.select_dtypes(include="number").columns
     full_df[numeric_cols] = full_df[numeric_cols].round(2)
-    full_df.to_csv(f"output/{out_prefix}_results.csv", index=False)
-    print(f"\nSaved: output/{out_prefix}_results.csv")
+    full_df.to_csv(f"{OUTPUT_DIR}/{out_prefix}_results.csv", index=False)
+    print(f"\nSaved: {OUTPUT_DIR}/{out_prefix}_results.csv")
 
     if len(full_df):
         metric_cols = ["RMSE", "MAE", "MARD", "TimeLag_min", "CEGA_A_%", "CEGA_B_%", "CEGA_C_%", "CEGA_D_%", "CEGA_E_%"]
         summary = summary_mean_sd(full_df, group_cols=["Horizon", "Architecture"], metric_cols=metric_cols)
-        summary.to_csv(f"output/{out_prefix}_summary_mean_sd.csv", index=False)
-        print(f"Saved: output/{out_prefix}_summary_mean_sd.csv")
+        summary.to_csv(f"{OUTPUT_DIR}/{out_prefix}_summary_mean_sd.csv", index=False)
+        print(f"Saved: {OUTPUT_DIR}/{out_prefix}_summary_mean_sd.csv")
         print(summary.to_string(index=False))
     return full_df
 
