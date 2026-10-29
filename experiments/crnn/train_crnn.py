@@ -322,18 +322,21 @@ def train_patient(patient, horizon, args, device):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--horizon", type=int, default=30, choices=[30, 60])
+    parser.add_argument("--horizon", type=int, default=30, choices=[15, 30, 60, 90, 120])
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--patience", type=int, default=7)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument("--output-root", type=Path, default=Path("output/crnn_initial"), help="Isolated output directory; defaults to the historical path.")
     parser.add_argument("--validation-fraction", type=float, default=0.15)
     parser.add_argument(
         "--patients", nargs="*", default=PATIENTS,
         help="Optional patient IDs for a small smoke run, e.g. --patients 540",
     )
     args = parser.parse_args()
+    global OUTPUT_ROOT
+    OUTPUT_ROOT = args.output_root.expanduser().resolve()
 
     invalid = sorted(set(args.patients) - set(PATIENTS))
     if invalid:
