@@ -118,16 +118,53 @@ def train_one(Xtr, ytr, Xv, yv, args, device, run_dir, patient, horizon):
             loss.backward(); opt.step(); loss_sum += loss.item() * len(yb); count += len(yb)
         train_loss = loss_sum / max(count, 1)
         model.eval(); v_sum = v_count = 0
+        val_prob_batches, val_target_batches = [], []
         with torch.no_grad():
             for xb, yb in va_loader:
                 xb, yb = xb.to(device), yb.to(device)
-                l = criterion(model(xb), yb); v_sum += l.item() * len(yb); v_count += len(yb)
+                logits = model(xb)
+                l = criterion(logits, yb)
+                v_sum += l.item() * len(yb); v_count += len(yb)
+                val_prob_batches.append(torch.softmax(logits, dim=-1).cpu().numpy())
+                val_target_batches.append(yb.cpu().numpy())
         val_loss = v_sum / max(v_count, 1)
-        history.append({"epoch": epoch, "train_ce": train_loss, "validation_ce": val_loss})
+
+        # Diagnostic only: does not alter the objective, gradients, or checkpoint selection.
+        val_probs = np.concatenate(val_prob_batches, axis=0)
+        val_true = np.concatenate(val_target_batches, axis=0)
+        val_pred = val_probs.argmax(axis=1)
+        val_pred_counts = np.bincount(val_pred, minlength=256)
+        val_true_endpoint_share = 100.0 * np.mean((val_true == 0) | (val_true == 255))
+        val_pred_endpoint_share = 100.0 * np.mean((val_pred == 0) | (val_pred == 255))
+        val_pred_mode_share = 100.0 * val_pred_counts.max() / max(len(val_pred), 1)
+        val_entropy = -np.sum(
+            val_probs * np.log(np.maximum(val_probs, 1e-12)), axis=1
+        )
+        val_max_probability = val_probs.max(axis=1)
+
+        history.append({
+            "epoch": epoch,
+            "train_ce": train_loss,
+            "validation_ce": val_loss,
+            "val_true_unique_classes": int(np.unique(val_true).size),
+            "val_pred_unique_classes": int(np.unique(val_pred).size),
+            "val_true_endpoint_share_pct": float(val_true_endpoint_share),
+            "val_pred_endpoint_share_pct": float(val_pred_endpoint_share),
+            "val_pred_mode_share_pct": float(val_pred_mode_share),
+            "val_mean_probability_entropy": float(val_entropy.mean()),
+            "val_mean_max_probability": float(val_max_probability.mean()),
+        })
         if val_loss < best_loss:
             best_loss, best_state, best_epoch, patience = val_loss, copy.deepcopy(model.state_dict()), epoch, 0
         else: patience += 1
-        print(f"{patient} h{horizon} epoch {epoch}/{args.epochs}: train CE={train_loss:.4f}; val CE={val_loss:.4f}", flush=True)
+        print(
+            f"{patient} h{horizon} epoch {epoch}/{args.epochs}: "
+            f"train CE={train_loss:.4f}; val CE={val_loss:.4f}; "
+            f"val classes true/pred={np.unique(val_true).size}/{np.unique(val_pred).size}; "
+            f"pred endpoints={val_pred_endpoint_share:.1f}%; "
+            f"largest predicted class={val_pred_mode_share:.1f}%",
+            flush=True,
+        )
         if patience >= args.patience: break
     if best_state is None: raise RuntimeError("No best checkpoint was produced")
     model.load_state_dict(best_state)
