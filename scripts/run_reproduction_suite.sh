@@ -4,7 +4,7 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 DATA_ROOT="${CGM_OHIO_DATA_ROOT:-$HOME/Desktop/OhioT1DM_data_backup}"
-OUT="$ROOT/output/reproduction_suite"
+OUT="$ROOT/output/reproduction_suite_$(date +%Y%m%d_%H%M%S)"
 LOG="$OUT/logs"
 mkdir -p "$LOG"
 if [[ ! -d "$DATA_ROOT" ]]; then
