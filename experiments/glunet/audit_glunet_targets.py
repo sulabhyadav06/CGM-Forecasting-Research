@@ -20,6 +20,7 @@ from experiments.glunet.train_glunet_candidate_all_patients import (
     load_partition,
     make_sequences,
 )
+from experiments.glunet.glunet_data import quantize_delta
 
 N_CLASSES = 256
 LOWER_SATURATION_THRESHOLD = -12.75
@@ -81,9 +82,7 @@ def baseline_rows(train_meta: pd.DataFrame, eval_meta: pd.DataFrame,
     train_delta = train_meta["delta_glucose"].to_numpy(dtype=np.float64)
     current = eval_meta["current_glucose"].to_numpy(dtype=np.float64)
     actual = eval_meta["target_glucose"].to_numpy(dtype=np.float64)
-    labels = np.clip(
-        np.floor(10.0 * (train_delta + 12.8) + 0.5).astype(np.int64), 1, 256
-    ) - 1
+    labels = quantize_delta(train_delta)
     counts = np.bincount(labels, minlength=N_CLASSES)
     mode_class = int(np.argmax(counts))
     expected_class_delta = float(np.sum(counts * CLASS_CENTRES) / counts.sum())
@@ -136,8 +135,8 @@ def audit_patient(root: Path, patient: str, horizon: int,
             "raw_delta_mean_mg_dL": float(deltas.mean()),
             "raw_delta_median_mg_dL": float(np.median(deltas)),
             "raw_delta_std_mg_dL": float(deltas.std()),
-            "raw_delta_below_saturation_threshold_pct": float(
-                100 * np.mean(deltas < LOWER_SATURATION_THRESHOLD)),
+            "raw_delta_at_or_below_lower_saturation_threshold_pct": float(
+                100 * np.mean(deltas <= LOWER_SATURATION_THRESHOLD)),
             "raw_delta_at_or_above_saturation_threshold_pct": float(
                 100 * np.mean(deltas >= UPPER_SATURATION_THRESHOLD)),
             "JS_divergence_from_train_nats": (
