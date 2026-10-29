@@ -72,7 +72,7 @@ scripts/run_reproduction_suite.sh runs:
 3. CRNN at 15, 90 and 120 minutes;
 4. GluNet 256-class candidate at 15, 90 and 120 minutes.
 
-It checks the 24 required local partition files before training. All newly generated outputs/logs go under output/reproduction_suite/, not historical result directories. Raw data are not uploaded.
+It checks the 24 required local partition files before training. All newly generated outputs/logs go under output/reproduction_suite_<timestamp>/, not historical result directories. Raw data are not uploaded.
 
 Run from the repository root:
 bash scripts/run_reproduction_suite.sh
