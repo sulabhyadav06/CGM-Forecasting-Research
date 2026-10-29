@@ -216,10 +216,31 @@ def main():
                 f"{s['split_summaries']['test']['unique_classes']}",
                 flush=True,
             )
-    pd.DataFrame(distributions).to_csv(out / "target_class_distributions.csv", index=False)
-    pd.DataFrame(baselines).to_csv(out / "baseline_metrics.csv", index=False)
+    distribution_frame = pd.DataFrame(distributions)
+    baseline_frame = pd.DataFrame(baselines)
+    distribution_frame.to_csv(out / "target_class_distributions.csv", index=False)
+    baseline_frame.to_csv(out / "baseline_metrics.csv", index=False)
     (out / "audit_summary.json").write_text(json.dumps(summaries, indent=2))
-    print(f"Audit complete. Results: {out}")
+
+    print("\\nTARGET DISTRIBUTION")
+    for summary in summaries:
+        print(f"\\nPatient {summary['patient']} | horizon {summary['horizon_minutes']} min")
+        for split in ("train", "validation", "test"):
+            stats = summary["split_summaries"][split]
+            print(
+                f"  {split:10s}: n={stats['n']}, classes={stats['unique_classes']}, "
+                f"endpoint={stats['endpoint_class_share_pct']:.1f}%, "
+                f"raw saturation lower/upper="
+                f"{stats['raw_delta_at_or_below_lower_saturation_threshold_pct']:.1f}%/"
+                f"{stats['raw_delta_at_or_above_upper_saturation_threshold_pct']:.1f}%, "
+                f"JS-vs-train={stats['JS_divergence_from_train_nats']:.4f} nats"
+            )
+    print("\\nBASELINE METRICS (lower MAE/RMSE/MARD is better)")
+    print(baseline_frame[[
+        "patient", "horizon_minutes", "evaluation_split", "baseline",
+        "MAE_mg_dL", "RMSE_mg_dL", "MARD_pct"
+    ]].to_string(index=False, float_format=lambda x: f"{x:.3f}"))
+    print(f"\\nAudit complete. Results: {out}")
 
 
 if __name__ == "__main__":
