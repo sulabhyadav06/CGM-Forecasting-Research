@@ -37,7 +37,7 @@ for h in 30 60; do
   run_logged "crnn_h${h}" python -m experiments.crnn.train_crnn --horizon "$h" --epochs "$CRNN_EPOCHS" --batch-size "$BATCH_SIZE" --output-root "$OUT/crnn_initial"
 done
 # Stage 2: GluNet 256-class candidate at 30/60 minutes.
-run_logged "glunet_30_60" python experiments/glunet/train_glunet_candidate_all_patients.py --data-root "$DATA_ROOT" --output-dir "$OUT/glunet_initial" --horizons 30 60 --epochs "$GLUNET_EPOCHS" --batch-size "$GLUNET_BATCH_SIZE"
+run_logged "glunet_30_60" python -m experiments.glunet.train_glunet_candidate_all_patients --data-root "$DATA_ROOT" --output-dir "$OUT/glunet_initial" --horizons 30 60 --epochs "$GLUNET_EPOCHS" --batch-size "$GLUNET_BATCH_SIZE"
 # Stage 3: extended horizons.
 for h in 15 90 120; do
   run_logged "crnn_h${h}" python -m experiments.crnn.train_crnn --horizon "$h" --epochs "$CRNN_EPOCHS" --batch-size "$BATCH_SIZE" --output-root "$OUT/crnn_extended"
