@@ -42,7 +42,7 @@ run_logged "glunet_30_60" python -m experiments.glunet.train_glunet_candidate_al
 for h in 15 90 120; do
   run_logged "crnn_h${h}" python -m experiments.crnn.train_crnn --horizon "$h" --epochs "$CRNN_EPOCHS" --batch-size "$BATCH_SIZE" --output-root "$OUT/crnn_extended"
 done
-run_logged "glunet_15_90_120" python experiments/glunet/train_glunet_candidate_all_patients.py --data-root "$DATA_ROOT" --output-dir "$OUT/glunet_extended" --horizons 15 90 120 --epochs "$GLUNET_EPOCHS" --batch-size "$GLUNET_BATCH_SIZE"
+run_logged "glunet_15_90_120" python -m experiments.glunet.train_glunet_candidate_all_patients --data-root "$DATA_ROOT" --output-dir "$OUT/glunet_extended" --horizons 15 90 120 --epochs "$GLUNET_EPOCHS" --batch-size "$GLUNET_BATCH_SIZE"
 echo
 echo "Candidate runs finished. Logs: $LOG"
 echo "Results: $OUT"
