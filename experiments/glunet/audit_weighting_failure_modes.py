@@ -11,6 +11,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from experiments.glunet.glunet_data import quantize_delta
+
 DEFAULT_RUNS = {
     "alpha_025": "output/glunet_weight_power_025/candidate_20261030_100153",
     "alpha_050": "output/glunet_weight_power_050/candidate_20261030_100339",
@@ -101,6 +103,8 @@ def main():
     base_df = next(iter(loaded.values()))[0]
     delta = base_df["delta_glucose"].to_numpy(float)
     true_cls = base_df["_true_class"].to_numpy(int)
+    if not np.array_equal(true_cls, quantize_delta(delta)):
+        raise ValueError("saved true classes disagree with the repository canonical quantizer")
     current = base_df["current_glucose"].to_numpy(float)
     target = base_df["target_glucose"].to_numpy(float)
     if not np.allclose(current + delta, target, atol=1e-4, rtol=0):
