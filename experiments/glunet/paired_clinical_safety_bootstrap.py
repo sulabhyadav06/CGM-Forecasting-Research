@@ -59,18 +59,39 @@ def _metrics(actual: np.ndarray, forecast: np.ndarray) -> dict[str, float]:
     }
 
 
-def _block_indices(n: int, block_size: int, rng: np.random.Generator) -> np.ndarray:
-    """Sample non-circular contiguous blocks until n paired rows are obtained."""
-    if block_size < 1 or block_size > n:
-        raise ValueError(f"block size must be between 1 and n={n}")
-    pieces = []
-    total = 0
-    while total < n:
-        start = int(rng.integers(0, n - block_size + 1))
-        block = np.arange(start, start + block_size)
-        pieces.append(block)
-        total += block_size
-    return np.concatenate(pieces)[:n]
+def _contiguous_segments(timestamps: pd.Series) -> list[np.ndarray]:
+    """Return positional index arrays split wherever adjacent rows are not 5 min apart."""
+    parsed = pd.to_datetime(timestamps, errors="coerce")
+    if parsed.isna().any():
+        raise ValueError("Could not parse all target_timestamp values")
+    gap_minutes = parsed.diff().dt.total_seconds().to_numpy()[1:] / 60.0
+    boundaries = np.flatnonzero(~np.isclose(gap_minutes, 5.0, atol=1e-3, rtol=0)) + 1
+    edges = np.concatenate(([0], boundaries, [len(parsed)]))
+    return [np.arange(int(a), int(b)) for a, b in zip(edges[:-1], edges[1:]) if b > a]
+
+
+def _segment_aware_block_indices(
+    segments: list[np.ndarray], block_size: int, rng: np.random.Generator
+) -> np.ndarray:
+    """Resample each contiguous segment to its original length without crossing gaps.
+
+    Each segment is resampled independently. If a segment is shorter than the
+    requested block size, its entire segment is used as the maximum block.
+    """
+    if block_size < 1:
+        raise ValueError("block size must be positive")
+    sampled_segments = []
+    for segment in segments:
+        n_segment = len(segment)
+        effective_block = min(block_size, n_segment)
+        pieces = []
+        total = 0
+        while total < n_segment:
+            start = int(rng.integers(0, n_segment - effective_block + 1))
+            pieces.append(segment[start:start + effective_block])
+            total += effective_block
+        sampled_segments.append(np.concatenate(pieces)[:n_segment])
+    return np.concatenate(sampled_segments)
 
 
 def _bootstrap_comparison(
@@ -81,6 +102,7 @@ def _bootstrap_comparison(
     n_boot: int,
     seed: int,
     candidate_label: str,
+    segments: list[np.ndarray],
 ) -> list[dict]:
     n = len(actual)
     rng = np.random.default_rng(seed)
@@ -90,7 +112,7 @@ def _bootstrap_comparison(
     samples = {name: [] for name in metric_names}
 
     for _ in range(n_boot):
-        idx = _block_indices(n, block_size, rng)
+        idx = _segment_aware_block_indices(segments, block_size, rng)
         m_base = _metrics(actual[idx], baseline[idx])
         m_candidate = _metrics(actual[idx], candidate[idx])
         for name in metric_names:
@@ -167,18 +189,16 @@ def main() -> None:
             raise ValueError(f"{label}: test rows/order differ from original run")
         loaded[label] = current + prob @ mean_map
 
-    # Verify the test sequence is regular at 5-minute intervals. This is
-    # necessary for interpreting block sizes as 60- and 120-minute blocks.
-    timestamps = pd.to_datetime(anchor["target_timestamp"], errors="coerce")
-    if timestamps.isna().any():
-        raise ValueError("Could not parse all target_timestamp values")
-    gaps = timestamps.diff().dropna().dt.total_seconds().to_numpy() / 60
-    if len(gaps) and not np.allclose(gaps, 5.0):
-        unique_gaps = sorted(set(np.round(gaps, 3).tolist()))
-        raise ValueError(
-            "Test timestamps are not uniformly 5 minutes apart; "
-            f"observed gaps (minutes): {unique_gaps[:20]}. Do not apply fixed-row blocks."
-        )
+    # Split at missing-observation gaps. Bootstrap blocks are sampled only
+    # inside each continuous 5-minute segment and never bridge a discontinuity.
+    segments = _contiguous_segments(anchor["target_timestamp"])
+    segment_lengths = np.asarray([len(s) for s in segments], dtype=int)
+    print(
+        f"Continuous 5-minute segments: {len(segments)}; "
+        f"length min/median/max={segment_lengths.min()}/"
+        f"{np.median(segment_lengths):.0f}/{segment_lengths.max()} rows; "
+        f"segments shorter than 24 rows={int(np.sum(segment_lengths < 24))}"
+    )
 
     baseline = loaded["original_unweighted"]
     rows = []
@@ -186,7 +206,7 @@ def main() -> None:
         for block_size in args.block_sizes:
             rows.extend(_bootstrap_comparison(
                 actual, baseline, loaded[label], block_size,
-                args.n_bootstrap, args.seed + block_size, label,
+                args.n_bootstrap, args.seed + block_size, label, segments,
             ))
 
     out = Path(args.output_dir).expanduser()
@@ -198,7 +218,14 @@ def main() -> None:
         f"Patient={args.patient}; horizon={args.horizon}; n_test={len(actual)}; "
         f"training windows for decoder mapping={n_train}.\n"
         f"Bootstrap replicates per comparison/block size={args.n_bootstrap}; "
-        f"block sizes={args.block_sizes} rows (5 minutes per row).\n"
+        f"requested block sizes={args.block_sizes} rows (5 minutes per row).\n"
+        f"Continuous 5-minute segments={len(segments)}; segment lengths "
+        f"min/median/max={segment_lengths.min()}/{np.median(segment_lengths):.0f}/"
+        f"{segment_lengths.max()} rows; segments shorter than 24 rows="
+        f"{int(np.sum(segment_lengths < 24))}.\n"
+        "Segments are resampled independently; no sampled block crosses a "
+        "timestamp discontinuity. For segments shorter than the requested "
+        "block size, the whole segment is the effective block.\n"
         "All comparisons use the training-only conditional-mean decoder. "
         "The same paired test-row indices are applied to baseline and candidate.\n"
         "Intervals are percentile 95% intervals for candidate-minus-baseline "
