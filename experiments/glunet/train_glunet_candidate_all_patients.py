@@ -130,7 +130,7 @@ def train_one(Xtr, ytr, Xv, yv, args, device, run_dir, patient, horizon):
     class_weights = None
     if args.loss_mode == "sqrt_inverse_frequency":
         # Weights are fitted from ytr only; validation/test labels never enter.
-        class_weights = compute_class_weights(ytr)
+        class_weights = compute_class_weights(ytr, power=args.class_weight_power)
         train_criterion = nn.CrossEntropyLoss(
             weight=torch.as_tensor(class_weights, dtype=torch.float32, device=device)
         )
@@ -206,6 +206,7 @@ def train_one(Xtr, ytr, Xv, yv, args, device, run_dir, patient, horizon):
                 "dilations": [1,2,4,8], "best_epoch": best_epoch, "best_validation_ce": best_loss,
                 "preprocessor_fit_on_training_segment_only": True,
                 "loss_mode": args.loss_mode,
+                "class_weight_power": args.class_weight_power if class_weights is not None else None,
                 "class_weights": class_weights.tolist() if class_weights is not None else None}, out / "best.pt")
     return model, out
 
@@ -309,12 +310,14 @@ def parse_args():
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--batch-size", type=int, default=128)
     p.add_argument("--lr", type=float, default=1e-3)
-    p.add_argument("--loss-mode", choices=["standard", "sqrt_inverse_frequency"], default="standard", help="Optional square-root inverse-frequency weighting fitted on training labels only")
+    p.add_argument("--loss-mode", choices=["standard", "sqrt_inverse_frequency"], default="standard", help="Optional inverse-frequency weighting fitted on training labels only")
+    p.add_argument("--class-weight-power", type=float, default=0.5, help="Exponent alpha for class weights n_c**(-alpha); used only with sqrt_inverse_frequency (default: 0.5)")
     p.add_argument("--epochs", type=int, default=30)
     p.add_argument("--patience", type=int, default=5)
     p.add_argument("--cpu", action="store_true")
     args=p.parse_args()
     if not 0.05 <= args.validation_fraction <= 0.4: p.error("validation-fraction must be between 0.05 and 0.4")
+    if args.class_weight_power <= 0: p.error("class-weight-power must be positive")
     if any(h <= 0 or h % 5 for h in args.horizons): p.error("horizons must be positive multiples of 5")
     if any(p not in PATIENTS for p in args.patients): p.error(f"patients must be selected from {PATIENTS}")
     return args
