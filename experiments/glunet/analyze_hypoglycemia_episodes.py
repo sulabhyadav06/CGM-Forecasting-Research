@@ -256,29 +256,29 @@ def main() -> None:
     (out / "README.txt").write_text(
         "Retrospective episode-level hypoglycemia analysis of saved forecasts\n"
         f"Patient={args.patient}; horizon={args.horizon}; test rows={len(timestamps)}; "
-        f"training windows for decoder mapping={n_train}.\\n"
+        f"training windows for decoder mapping={n_train}.\n"
         "Forecasts use the training-only conditional-mean class decoder. "
-        "No model training occurs.\\n"
+        "No model training occurs.\n"
         "Low glucose is defined as <70 mg/dL. Episodes group low observations "
         "when consecutive low timestamps are no more than the configured gap "
         "tolerance apart. The sensitivity grid varies gap tolerance and "
-        "anticipation window.\\n"
+        "anticipation window.\n"
         "One-to-one matching requires predicted-episode interval overlap with "
         "the actual episode interval expanded backwards by the anticipation "
         "window. Detection delay is predicted episode start minus actual "
         "episode start; negative means predicted early. Unmatched predicted "
-        "episodes are false alarms; unmatched actual episodes are missed.\\n"
+        "episodes are false alarms; unmatched actual episodes are missed.\n"
         "False alarms per 24 hours use sample-equivalent monitoring time "
         "(test rows x 5 minutes), excluding unobserved gaps. These definitions "
-        "are analysis conventions, not validated clinical alarm criteria.\\n"
+        "are analysis conventions, not validated clinical alarm criteria.\n"
         "Single patient and horizon; retrospective results do not establish "
-        "clinical safety, real-time alarm performance, or generalization.\\n"
+        "clinical safety, real-time alarm performance, or generalization.\n"
     )
     print(f"Training windows for decoder mapping: {n_train}; test rows: {len(timestamps)}")
     print(f"Sample-equivalent monitoring duration: {monitored_hours:.2f} hours")
-    print("\\nEPISODE-LEVEL SUMMARY")
+    print("\nEPISODE-LEVEL SUMMARY")
     print(pd.DataFrame(summary_rows).to_string(index=False, float_format=lambda x: f"{x:.3f}"))
-    print(f"\\nSaved reports to {out.resolve()}")
+    print(f"\nSaved reports to {out.resolve()}")
 
 
 if __name__ == "__main__":
