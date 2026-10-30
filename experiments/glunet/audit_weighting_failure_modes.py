@@ -279,6 +279,12 @@ def main():
     print(f"Saved quantization and temporal failure audit: {out}")
     print("\\nQuantization summary")
     print(pd.read_csv(out / "quantization_summary.csv").to_string(index=False))
+    print("\\nQuantization reconstruction floor (perfect class prediction)")
+    print(pd.read_csv(out / "quantization_reconstruction_floor.csv").to_string(
+        index=False, float_format=lambda x: f"{x:.3f}"))
+    print("\\nPredicted endpoints conditioned on true class saturation")
+    print(pd.read_csv(out / "endpoint_prediction_vs_saturation.csv").to_string(
+        index=False, float_format=lambda x: f"{x:.3f}"))
     print("\\nTemporal error strata")
     temporal = pd.read_csv(out / "temporal_error_strata.csv")
     print(temporal[temporal["group"].isin(["rapid_fall", "rapid_rise", "falling", "rising"])].to_string(
