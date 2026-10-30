@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from experiments.glunet.glunet_data import recover_delta
+from experiments.glunet.glunet_data import quantize_delta, recover_delta
 from experiments.glunet.train_glunet_candidate_all_patients import (
     load_partition,
     make_sequences,
@@ -128,6 +128,9 @@ def main():
             raise ValueError(f"{label}: CSV and probability artifact dimensions differ")
         if not np.array_equal(prob.argmax(axis=1), pred_class):
             raise ValueError(f"{label}: probability argmax and saved predicted classes differ")
+        canonical_true_class = quantize_delta(frame["delta_glucose"].to_numpy(dtype=float))
+        if not np.array_equal(canonical_true_class, true_class):
+            raise ValueError(f"{label}: saved true classes disagree with canonical quantization")
 
         alignment = frame[["target_timestamp", "current_glucose", "target_glucose", "delta_glucose"]]
         if anchor is None:
