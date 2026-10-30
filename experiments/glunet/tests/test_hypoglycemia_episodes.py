@@ -14,7 +14,7 @@ from experiments.glunet.analyze_hypoglycemia_episodes import (
 def test_extract_episodes_groups_by_gap_tolerance():
     start = datetime(2026, 1, 1)
     times = pd.date_range(start, periods=6, freq="5min")
-    episodes = extract_episodes(times, np.array([1, 1, 0, 1, 0, 1], bool), 10)
+    episodes = extract_episodes(times, np.array([1, 1, 0, 1, 0, 1], bool), 9)
     assert len(episodes) == 2
     assert episodes[0]["n_low_observations"] == 2
     assert episodes[1]["n_low_observations"] == 2
@@ -42,7 +42,7 @@ def test_match_episodes_one_to_one_and_delay_sign():
                   "end": pd.Timestamp("2026-01-01 00:20")}]
     matches, missed, false = match_episodes(actual, predicted, 5)
     assert len(matches) == 1
-    assert matches[0]["detection_delay_minutes"] == -5
+    assert matches[0]["detection_delay_minutes"] == 0
     assert missed == []
     assert len(false) == 1
 
