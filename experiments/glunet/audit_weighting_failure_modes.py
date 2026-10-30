@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from experiments.glunet.glunet_data import quantize_delta
+from experiments.glunet.glunet_data import quantize_delta, recover_delta
 
 DEFAULT_RUNS = {
     "alpha_025": "output/glunet_weight_power_025/candidate_20261030_100153",
@@ -142,6 +142,54 @@ def main():
         "true_endpoint_class_share_pct": float(100 * np.mean((true_cls == 0) | (true_cls == 255))),
     }]).to_csv(out / "quantization_summary.csv", index=False)
 
+    # Quantization reconstruction floor, even with perfect class prediction.
+    decoded_true_delta = recover_delta(true_cls).astype(float)
+    quantization_error = decoded_true_delta - delta
+    lower_endpoint = true_cls == 0
+    upper_endpoint = true_cls == 255
+    interior_class = ~(lower_endpoint | upper_endpoint)
+    quant_rows = []
+    for name, mask in [
+        ("all", np.ones(len(delta), dtype=bool)),
+        ("lower_saturated_endpoint_class_0", lower_endpoint),
+        ("upper_saturated_endpoint_class_255", upper_endpoint),
+        ("interior_classes_1_to_254", interior_class),
+    ]:
+        if mask.any():
+            e = quantization_error[mask]
+            quant_rows.append({
+                "group": name, "n": int(mask.sum()),
+                "share_of_test_pct": float(100 * mask.mean()),
+                "delta_min": float(delta[mask].min()),
+                "delta_max": float(delta[mask].max()),
+                "reconstructed_delta_min": float(decoded_true_delta[mask].min()),
+                "reconstructed_delta_max": float(decoded_true_delta[mask].max()),
+                "quantization_floor_MAE_mg_dL": float(np.mean(np.abs(e))),
+                "quantization_floor_RMSE_mg_dL": float(np.sqrt(np.mean(e ** 2))),
+                "quantization_floor_mean_error_mg_dL": float(np.mean(e)),
+            })
+    pd.DataFrame(quant_rows).to_csv(out / "quantization_reconstruction_floor.csv", index=False)
+
+    # Compare predicted endpoints with naturally saturated target classes.
+    endpoint_rows = []
+    true_endpoint = lower_endpoint | upper_endpoint
+    for label, (df, prob) in loaded.items():
+        pred_cls = df["_pred_class"].to_numpy(int)
+        pred_endpoint = (pred_cls == 0) | (pred_cls == 255)
+        for name, mask in [
+            ("true_endpoint", true_endpoint),
+            ("true_interior", ~true_endpoint),
+            ("all", np.ones(len(delta), dtype=bool)),
+        ]:
+            if mask.any():
+                endpoint_rows.append({
+                    "run": label, "group": name, "n": int(mask.sum()),
+                    "predicted_endpoint_share_pct": float(100 * pred_endpoint[mask].mean()),
+                    "predicted_lower_endpoint_share_pct": float(100 * np.mean(pred_cls[mask] == 0)),
+                    "predicted_upper_endpoint_share_pct": float(100 * np.mean(pred_cls[mask] == 255)),
+                    "true_endpoint_share_pct": float(100 * true_endpoint[mask].mean()),
+                })
+    pd.DataFrame(endpoint_rows).to_csv(out / "endpoint_prediction_vs_saturation.csv", index=False)
     # Temporal dynamics and model residuals by direction and magnitude of observed change.
     magnitude_bins = [-np.inf, 5, 10, 20, np.inf]
     magnitude_labels = ["abs_delta_0_5", "abs_delta_5_10", "abs_delta_10_20", "abs_delta_gt20"]
