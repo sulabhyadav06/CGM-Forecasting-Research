@@ -97,6 +97,27 @@ def make_sequences(df: pd.DataFrame, horizon: int):
     return np.asarray(X, dtype=np.float32).reshape((-1, LOOKBACK, len(FEATURES))), np.asarray(y, dtype=np.int64), pd.DataFrame(meta)
 
 
+def compute_class_weights(y, n_classes: int = 256, power: float = 0.5) -> np.ndarray:
+    """Compute square-root inverse-frequency weights from training labels only.
+
+    Unobserved classes receive zero weight. Observed-class weights are
+    normalized so their sample-weighted mean is one.
+    """
+    labels = np.asarray(y, dtype=np.int64)
+    if labels.ndim != 1 or labels.size == 0:
+        raise ValueError("y must be a non-empty one-dimensional label array")
+    if np.any((labels < 0) | (labels >= n_classes)):
+        raise ValueError(f"labels must be in [0, {n_classes - 1}]")
+    if power <= 0:
+        raise ValueError("power must be positive")
+    counts = np.bincount(labels, minlength=n_classes).astype(np.float64)
+    weights = np.zeros(n_classes, dtype=np.float64)
+    observed = counts > 0
+    weights[observed] = counts[observed] ** (-power)
+    weights /= np.sum(counts * weights) / counts.sum()
+    return weights.astype(np.float32)
+
+
 def loaders(X, y, batch, shuffle, device):
     ds = TensorDataset(torch.from_numpy(X), torch.from_numpy(y))
     return DataLoader(ds, batch_size=batch, shuffle=shuffle, num_workers=0, pin_memory=device.type == "cuda")
@@ -105,7 +126,16 @@ def loaders(X, y, batch, shuffle, device):
 def train_one(Xtr, ytr, Xv, yv, args, device, run_dir, patient, horizon):
     model = GluNetCandidate(input_features=len(FEATURES)).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
-    criterion = nn.CrossEntropyLoss()
+    validation_criterion = nn.CrossEntropyLoss()
+    class_weights = None
+    if args.loss_mode == "sqrt_inverse_frequency":
+        # Weights are fitted from ytr only; validation/test labels never enter.
+        class_weights = compute_class_weights(ytr, power=args.class_weight_power)
+        train_criterion = nn.CrossEntropyLoss(
+            weight=torch.as_tensor(class_weights, dtype=torch.float32, device=device)
+        )
+    else:
+        train_criterion = nn.CrossEntropyLoss()
     tr_loader = loaders(Xtr, ytr, args.batch_size, True, device)
     va_loader = loaders(Xv, yv, args.batch_size, False, device)
     best_loss, best_state, best_epoch, patience = float("inf"), None, 0, 0
@@ -114,20 +144,57 @@ def train_one(Xtr, ytr, Xv, yv, args, device, run_dir, patient, horizon):
         model.train(); loss_sum = count = 0
         for xb, yb in tr_loader:
             xb, yb = xb.to(device), yb.to(device)
-            opt.zero_grad(set_to_none=True); logits = model(xb); loss = criterion(logits, yb)
+            opt.zero_grad(set_to_none=True); logits = model(xb); loss = train_criterion(logits, yb)
             loss.backward(); opt.step(); loss_sum += loss.item() * len(yb); count += len(yb)
         train_loss = loss_sum / max(count, 1)
         model.eval(); v_sum = v_count = 0
+        val_prob_batches, val_target_batches = [], []
         with torch.no_grad():
             for xb, yb in va_loader:
                 xb, yb = xb.to(device), yb.to(device)
-                l = criterion(model(xb), yb); v_sum += l.item() * len(yb); v_count += len(yb)
+                logits = model(xb)
+                l = validation_criterion(logits, yb)
+                v_sum += l.item() * len(yb); v_count += len(yb)
+                val_prob_batches.append(torch.softmax(logits, dim=-1).cpu().numpy())
+                val_target_batches.append(yb.cpu().numpy())
         val_loss = v_sum / max(v_count, 1)
-        history.append({"epoch": epoch, "train_ce": train_loss, "validation_ce": val_loss})
+
+        # Diagnostic only: does not alter the objective, gradients, or checkpoint selection.
+        val_probs = np.concatenate(val_prob_batches, axis=0)
+        val_true = np.concatenate(val_target_batches, axis=0)
+        val_pred = val_probs.argmax(axis=1)
+        val_pred_counts = np.bincount(val_pred, minlength=256)
+        val_true_endpoint_share = 100.0 * np.mean((val_true == 0) | (val_true == 255))
+        val_pred_endpoint_share = 100.0 * np.mean((val_pred == 0) | (val_pred == 255))
+        val_pred_mode_share = 100.0 * val_pred_counts.max() / max(len(val_pred), 1)
+        val_entropy = -np.sum(
+            val_probs * np.log(np.maximum(val_probs, 1e-12)), axis=1
+        )
+        val_max_probability = val_probs.max(axis=1)
+
+        history.append({
+            "epoch": epoch,
+            "train_objective_loss": train_loss,
+            "validation_ce": val_loss,
+            "val_true_unique_classes": int(np.unique(val_true).size),
+            "val_pred_unique_classes": int(np.unique(val_pred).size),
+            "val_true_endpoint_share_pct": float(val_true_endpoint_share),
+            "val_pred_endpoint_share_pct": float(val_pred_endpoint_share),
+            "val_pred_mode_share_pct": float(val_pred_mode_share),
+            "val_mean_probability_entropy": float(val_entropy.mean()),
+            "val_mean_max_probability": float(val_max_probability.mean()),
+        })
         if val_loss < best_loss:
             best_loss, best_state, best_epoch, patience = val_loss, copy.deepcopy(model.state_dict()), epoch, 0
         else: patience += 1
-        print(f"{patient} h{horizon} epoch {epoch}/{args.epochs}: train CE={train_loss:.4f}; val CE={val_loss:.4f}", flush=True)
+        print(
+            f"{patient} h{horizon} epoch {epoch}/{args.epochs}: "
+            f"train CE={train_loss:.4f}; val CE={val_loss:.4f}; "
+            f"val classes true/pred={np.unique(val_true).size}/{np.unique(val_pred).size}; "
+            f"pred endpoints={val_pred_endpoint_share:.1f}%; "
+            f"largest predicted class={val_pred_mode_share:.1f}%",
+            flush=True,
+        )
         if patience >= args.patience: break
     if best_state is None: raise RuntimeError("No best checkpoint was produced")
     model.load_state_dict(best_state)
@@ -137,7 +204,10 @@ def train_one(Xtr, ytr, Xv, yv, args, device, run_dir, patient, horizon):
     torch.save({"state_dict": best_state, "patient": patient, "horizon_minutes": horizon,
                 "feature_names": FEATURES, "lookback": LOOKBACK, "channels": [32,32,64,64],
                 "dilations": [1,2,4,8], "best_epoch": best_epoch, "best_validation_ce": best_loss,
-                "preprocessor_fit_on_training_segment_only": True}, out / "best.pt")
+                "preprocessor_fit_on_training_segment_only": True,
+                "loss_mode": args.loss_mode,
+                "class_weight_power": args.class_weight_power if class_weights is not None else None,
+                "class_weights": class_weights.tolist() if class_weights is not None else None}, out / "best.pt")
     return model, out
 
 
@@ -240,11 +310,14 @@ def parse_args():
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--batch-size", type=int, default=128)
     p.add_argument("--lr", type=float, default=1e-3)
+    p.add_argument("--loss-mode", choices=["standard", "sqrt_inverse_frequency"], default="standard", help="Optional inverse-frequency weighting fitted on training labels only")
+    p.add_argument("--class-weight-power", type=float, default=0.5, help="Exponent alpha for class weights n_c**(-alpha); used only with sqrt_inverse_frequency (default: 0.5)")
     p.add_argument("--epochs", type=int, default=30)
     p.add_argument("--patience", type=int, default=5)
     p.add_argument("--cpu", action="store_true")
     args=p.parse_args()
     if not 0.05 <= args.validation_fraction <= 0.4: p.error("validation-fraction must be between 0.05 and 0.4")
+    if args.class_weight_power <= 0: p.error("class-weight-power must be positive")
     if any(h <= 0 or h % 5 for h in args.horizons): p.error("horizons must be positive multiples of 5")
     if any(p not in PATIENTS for p in args.patients): p.error(f"patients must be selected from {PATIENTS}")
     return args
