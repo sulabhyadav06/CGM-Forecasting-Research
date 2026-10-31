@@ -14,7 +14,7 @@ from experiments.glunet.analyze_hypoglycemia_episodes import (
 def test_extract_episodes_groups_by_gap_tolerance():
     start = datetime(2026, 1, 1)
     times = pd.date_range(start, periods=6, freq="5min")
-    episodes = extract_episodes(times, np.array([1, 1, 0, 1, 0, 1], bool), 9)
+    episodes = extract_episodes(times, np.array([1, 1, 0, 0, 1, 1], bool), 10)
     assert len(episodes) == 2
     assert episodes[0]["n_low_observations"] == 2
     assert episodes[1]["n_low_observations"] == 2
