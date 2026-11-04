@@ -43,14 +43,13 @@ FEATSETS_2018 = {
     "glucose_insulin": ["glucose", "bolus_last_60min", "basal_rate"],
     "glucose_carbs_insulin": COMMON,
     "glucose_hr": ["glucose", "heart_rate_mean_5m"],
-    "glucose_hr_steps_carbs_sleep": [
+    "glucose_hr_steps_carbs": [
         "glucose", "heart_rate_mean_5m", "steps_mean_5m",
-        "carbs_last_60min", "is_sleeping",
+        "carbs_last_60min",
     ],
-    "full_2018": [
+    "full_2018_no_sleep": [
         "glucose", "heart_rate_mean_5m", "steps_mean_5m",
-        "carbs_last_60min", "is_sleeping",
-        "bolus_last_60min", "basal_rate",
+        "carbs_last_60min", "bolus_last_60min", "basal_rate",
     ],
 }
 FEATSETS_2020 = {
@@ -59,9 +58,9 @@ FEATSETS_2020 = {
     "glucose_insulin": ["glucose", "bolus_last_60min", "basal_rate"],
     "glucose_carbs_insulin": COMMON,
     "glucose_acceleration": ["glucose", "accel_mean_5m"],
-    "full_2020": [
+    "full_2020_no_sleep": [
         "glucose", "carbs_last_60min", "bolus_last_60min", "basal_rate",
-        "accel_mean_5m", "is_sleeping",
+        "accel_mean_5m",
     ],
 }
 
@@ -282,7 +281,7 @@ def run_case(root, cohort, pid, split, feature_name, features):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-root", default=".")
-    ap.add_argument("--output", default="output/phase2_feature_ablation")
+    ap.add_argument("--output", default="output/phase2_primary_sleepfree/feature_ablation")
     args = ap.parse_args()
 
     seed_all()
@@ -306,14 +305,8 @@ def main():
                 tr = load_df(tr_path)
                 te = load_df(te_path)
 
-                # Only run feature sets whose signals are genuinely represented.
-                if "is_sleeping" in features:
-                    sleep_available = tr["is_sleeping"].notna().any() and te["is_sleeping"].notna().any()
-                    # Missing sleep files are represented as all-zero only if the preprocessing
-                    # script explicitly created the column; skip unavailable sleep experiments.
-                    if not sleep_available:
-                        print(f"SKIP {pid}: sleep unavailable")
-                        continue
+                # Sleep is excluded from primary feature sets until annotation semantics
+                # are validated consistently across cohorts.
 
                 missing = [c for c in features if c not in tr.columns or c not in te.columns]
                 if missing:

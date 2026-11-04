@@ -1,11 +1,12 @@
 """Gap-safe CRNN data preparation for OhioT1DM."""
 
+import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-DATA_ROOT = Path.home() / "Desktop" / "OhioT1DM_data_backup"
+DATA_ROOT = Path(os.environ.get("CGM_OHIO_DATA_ROOT", str(Path.home() / "Desktop" / "OhioT1DM_data_backup"))).expanduser()
 
 FEATURES = [
     "Glucose",

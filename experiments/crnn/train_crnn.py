@@ -340,7 +340,7 @@ def train_patient(patient, horizon, args, device):
 def main():
     global OUTPUT_ROOT
     parser = argparse.ArgumentParser()
-    parser.add_argument("--horizon", type=int, default=30, choices=[30, 60])
+    parser.add_argument("--horizon", type=int, default=30, choices=[15, 30, 60, 90, 120])
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--patience", type=int, default=7)
     parser.add_argument("--batch-size", type=int, default=256)
