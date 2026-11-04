@@ -17,6 +17,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from experiments.crnn.crnn import CRNN
+from experiments.crnn.baselines import build_model
 from experiments.crnn.crnn_data import load_split, build_sequences
 
 PATIENTS = [
@@ -196,6 +197,15 @@ def train_patient(patient, horizon, args, device):
         f"Validation sequences: {len(X_val):,}"
     )
 
+    norm_mean = norm_std = None
+    if args.normalize:
+        flat = X_train.reshape(-1, X_train.shape[-1])
+        norm_mean = flat.mean(axis=0)
+        norm_std = flat.std(axis=0)
+        norm_std = np.where(norm_std < 1e-6, 1.0, norm_std)
+        X_train = ((X_train - norm_mean) / norm_std).astype(np.float32)
+        X_val = ((X_val - norm_mean) / norm_std).astype(np.float32)
+
     train_loader = make_loader(
         X_train, dy_train, args.batch_size, shuffle=True
     )
@@ -203,7 +213,8 @@ def train_patient(patient, horizon, args, device):
         X_val, dy_val, args.batch_size, shuffle=False
     )
 
-    model = CRNN(n_features=X_train.shape[-1], dropout=args.dropout).to(device)
+    model = build_model(args.model, X_train.shape[-1], args.dropout).to(device)
+    print(f"Model {args.model}: {sum(p.numel() for p in model.parameters()):,} parameters")
     loss_fn = nn.L1Loss()
     optimizer = torch.optim.RMSprop(model.parameters(), lr=args.learning_rate)
 
@@ -265,6 +276,10 @@ def train_patient(patient, horizon, args, device):
         "best_epoch": best_epoch,
         "best_validation_MAE_delta": best_val,
         "seed": SEED,
+        "normalize": bool(args.normalize),
+        "model_name": args.model,
+        "norm_mean": None if norm_mean is None else norm_mean.tolist(),
+        "norm_std": None if norm_std is None else norm_std.tolist(),
     }, checkpoint_path)
 
     pd.DataFrame(history).to_csv(out_dir / "training_history.csv", index=False)
@@ -273,6 +288,8 @@ def train_patient(patient, horizon, args, device):
     X_test, _, y_test, current_test, test_meta = prepare_sequences(
         patient, "testing", horizon
     )
+    if args.normalize:
+        X_test = ((X_test - norm_mean) / norm_std).astype(np.float32)
 
     metrics = evaluate_absolute_glucose(
         model, X_test, current_test, y_test, device
@@ -321,6 +338,7 @@ def train_patient(patient, horizon, args, device):
 
 
 def main():
+    global OUTPUT_ROOT
     parser = argparse.ArgumentParser()
     parser.add_argument("--horizon", type=int, default=30, choices=[30, 60])
     parser.add_argument("--epochs", type=int, default=50)
@@ -329,11 +347,17 @@ def main():
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--validation-fraction", type=float, default=0.15)
+    parser.add_argument("--output-root", default="output/crnn_initial")
+    parser.add_argument("--model", default="crnn",
+                        choices=["crnn", "gru", "lstm", "bilstm", "tcn", "transformer"])
+    parser.add_argument("--normalize", action="store_true",
+                        help="Standardise inputs per channel using training windows only")
     parser.add_argument(
         "--patients", nargs="*", default=PATIENTS,
         help="Optional patient IDs for a small smoke run, e.g. --patients 540",
     )
     args = parser.parse_args()
+    OUTPUT_ROOT = Path(args.output_root)
 
     invalid = sorted(set(args.patients) - set(PATIENTS))
     if invalid:

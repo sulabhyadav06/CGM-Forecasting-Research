@@ -20,3 +20,8 @@ __pycache__/
 output/
 data/
 data_shanghai_converted/
+data/
+*.xml
+output/**/best_model.pt
+logs/
+report_for_overleaf.zip
