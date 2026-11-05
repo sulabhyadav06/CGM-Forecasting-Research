@@ -49,8 +49,9 @@ for h in sorted(res.horizon.unique()):
 
 # Figure: per-patient RMSE across models (lines join the same patient)
 horizons = sorted(res.horizon.unique())
-fig, axes = plt.subplots(1, len(horizons), figsize=(7.2, 3.0), sharey=False)
-axes = np.atleast_1d(axes)
+ncols = min(3, len(horizons)); nrows = -(-len(horizons) // ncols)
+fig, axes = plt.subplots(nrows, ncols, figsize=(7.2, 3.0 * nrows), sharey=False)
+axes = np.atleast_1d(axes).ravel()
 for ax, h in zip(axes, horizons):
     piv = res[res.horizon == h].pivot(index="patient", columns="model", values="RMSE")
     models = [m for m in ORDER if m in piv.columns]
@@ -65,6 +66,8 @@ for ax, h in zip(axes, horizons):
     ax.set_title(f"{h}-min horizon", fontsize=9)
     ax.set_ylabel("RMSE (mg/dL)", fontsize=8)
     ax.tick_params(axis="y", labelsize=7)
+for ax in axes[len(horizons):]:
+    ax.axis("off")
 fig.tight_layout()
 fig.savefig(OUT / "figures" / "rmse_by_patient.pdf")
 print("Wrote tables to", OUT / "tables", "and figure to", OUT / "figures" / "rmse_by_patient.pdf")

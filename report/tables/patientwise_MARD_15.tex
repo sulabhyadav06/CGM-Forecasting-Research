@@ -1,0 +1,21 @@
+\begin{table*}[t]\centering
+\caption{Patient-wise MARD (\%) at 15~min on common test windows; best per patient in bold. CRNN: primary configuration; CRNN-256: batch-256 ablation; GN-reg/GN-lit: GluNet regression/literal. Source: \texttt{output/benchmark/patientwise.csv}.}
+\scriptsize\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lrcccccccc}\toprule
+Patient & $n$ & CRNN & GN-lit & GRU & LSTM & BiLSTM & TCN & Trans. & Persist.\\\midrule
+540 & 2560 & 6.30 & 5.92 & \textbf{5.34} & 6.00 & 6.02 & 5.37 & 6.03 & 8.03\\
+544 & 2508 & 4.58 & \textbf{4.47} & 4.76 & 4.71 & 4.73 & 4.54 & 4.65 & 6.01\\
+552 & 1996 & 5.38 & 5.27 & \textbf{4.94} & 5.36 & 5.69 & 5.26 & 5.32 & 6.45\\
+559 & 2202 & 4.54 & 4.49 & 4.33 & 4.74 & 4.76 & \textbf{4.28} & 4.56 & 5.68\\
+563 & 2466 & 5.25 & \textbf{4.89} & 5.08 & 5.19 & 5.28 & 5.12 & 5.21 & 5.77\\
+567 & 1987 & 5.43 & 5.66 & \textbf{4.99} & 5.55 & 5.45 & 5.13 & 5.57 & 7.41\\
+570 & 2485 & 3.40 & \textbf{3.18} & 3.35 & 3.84 & 3.63 & 3.21 & 3.36 & 3.96\\
+575 & 2316 & 6.19 & 5.77 & 5.97 & 6.20 & 6.22 & \textbf{5.73} & 6.07 & 7.14\\
+584 & 2249 & 6.26 & \textbf{6.10} & 6.22 & 6.65 & 6.34 & 6.31 & 6.17 & 6.78\\
+588 & 2713 & 5.04 & \textbf{4.56} & 4.83 & 4.89 & 4.89 & 4.76 & 4.71 & 5.56\\
+591 & 2630 & 7.02 & 7.35 & 7.08 & 7.28 & 7.25 & \textbf{6.79} & 7.04 & 7.82\\
+596 & 2561 & 5.23 & 5.23 & 5.08 & 5.24 & 5.32 & \textbf{5.08} & 5.14 & 6.39\\
+\midrule
+Mean$\pm$SD & & 5.38$\pm$0.97 & 5.24$\pm$1.05 & 5.16$\pm$0.95 & 5.47$\pm$0.94 & 5.46$\pm$0.94 & 5.13$\pm$0.93 & 5.32$\pm$0.96 & 6.42$\pm$1.13\\
+\bottomrule
+\end{tabular}\end{table*}

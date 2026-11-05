@@ -1,0 +1,21 @@
+\begin{table*}[t]\centering
+\caption{Patient-wise RMSE (mg/dL) at 15~min on common test windows; best per patient in bold. CRNN: primary configuration; CRNN-256: batch-256 ablation; GN-reg/GN-lit: GluNet regression/literal. Source: \texttt{output/benchmark/patientwise.csv}.}
+\scriptsize\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lrcccccccc}\toprule
+Patient & $n$ & CRNN & GN-lit & GRU & LSTM & BiLSTM & TCN & Trans. & Persist.\\\midrule
+540 & 2560 & 12.78 & 12.17 & \textbf{10.81} & 12.03 & 11.83 & 10.95 & 12.30 & 15.77\\
+544 & 2508 & 9.71 & \textbf{9.52} & 10.09 & 9.97 & 9.96 & 9.67 & 9.89 & 12.27\\
+552 & 1996 & 9.32 & 9.44 & \textbf{8.96} & 9.68 & 10.39 & 9.51 & 9.58 & 11.84\\
+559 & 2202 & 10.93 & 10.74 & \textbf{10.00} & 11.08 & 10.99 & 10.31 & 10.65 & 12.96\\
+563 & 2466 & 12.65 & \textbf{12.05} & 12.85 & 12.60 & 12.73 & 12.69 & 12.55 & 13.14\\
+567 & 1987 & 11.31 & 11.83 & \textbf{10.44} & 11.70 & 11.65 & 10.57 & 11.97 & 15.23\\
+570 & 2485 & 9.69 & 9.30 & 9.54 & 10.46 & 9.92 & \textbf{9.20} & 9.47 & 10.68\\
+575 & 2316 & 14.14 & \textbf{13.49} & 14.46 & 14.48 & 14.21 & 13.84 & 14.29 & 14.91\\
+584 & 2249 & 13.42 & \textbf{12.95} & 13.14 & 13.53 & 13.31 & 12.99 & 13.14 & 14.67\\
+588 & 2713 & 11.58 & \textbf{10.66} & 11.14 & 11.15 & 11.24 & 11.20 & 11.04 & 12.66\\
+591 & 2630 & 13.41 & 13.66 & 13.34 & 13.71 & 13.59 & 13.26 & \textbf{13.21} & 14.48\\
+596 & 2561 & 10.83 & 10.97 & \textbf{10.68} & 10.79 & 10.83 & 10.73 & 10.69 & 12.68\\
+\midrule
+Mean$\pm$SD & & 11.65$\pm$1.63 & 11.40$\pm$1.54 & 11.29$\pm$1.73 & 11.76$\pm$1.54 & 11.72$\pm$1.44 & 11.24$\pm$1.58 & 11.56$\pm$1.58 & 13.44$\pm$1.55\\
+\bottomrule
+\end{tabular}\end{table*}
