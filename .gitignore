@@ -25,3 +25,11 @@ data/
 output/**/best_model.pt
 logs/
 report_for_overleaf.zip
+experiments/glunet/runs/
+experiments/glunet/reports/
+experiments/glunet/diagnostics/
+reports/glunet_*
+*.before_*
+*.backup
+cgm_one_pass_audit*.txt
+notebooks/
