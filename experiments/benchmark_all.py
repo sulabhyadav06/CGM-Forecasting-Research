@@ -15,7 +15,7 @@ from experiments.crnn.time_lag_metrics import evaluate as lag_evaluate
 
 PATIENTS = ["540","544","552","559","563","567","570","575","584","588","591","596"]
 SIX = {"559","563","570","575","588","591"}
-HORIZONS = (30, 60)
+HORIZONS = (15, 30, 60, 90, 120)
 PRIMARY = Path("output/crnn_v2_bs128_norm")
 ABLATION = Path("output/crnn_initial_bs256_backup")
 BENCH = {"GRU": "gru", "LSTM": "lstm", "TCN": "tcn", "Transformer": "transformer", "BiLSTM": "bilstm"}
@@ -52,11 +52,12 @@ for h in HORIZONS:
         for name, key in BENCH.items():
             d = crnn_style(Path(f"output/bench_{key}"), p, h)
             if d is not None: series[name] = d.set_index("target_timestamp")["predicted_glucose"]
-        if LIT_RUNS:
-            f = LIT_RUNS[-1] / f"patient{p}_{h}min" / "test_predictions_and_diagnostics.csv"
+        for run in reversed(LIT_RUNS):
+            f = run / f"patient{p}_{h}min" / "test_predictions_and_diagnostics.csv"
             if f.exists():
                 d = pd.read_csv(f)
                 series["GluNet_literal"] = d.set_index("target_timestamp")["prediction_expected_class_value"]
+                break
         if reg_all is not None:
             r = reg_all[(reg_all.patient == p) & (reg_all.horizon_minutes == h)]
             if len(r): series["GluNet_regression"] = r.set_index("target_timestamp")["predicted_glucose_mg_dL"]
